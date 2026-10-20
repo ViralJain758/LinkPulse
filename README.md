@@ -12,7 +12,7 @@ A self-hosted URL shortener with built-in click analytics. Create short links, p
 - **QR codes** for every link, downloadable as PNG or SVG; scans are tracked as their own "QR code" source
 - **Click analytics**: totals, unique visitors, time series, sources (referrers), devices, browsers, OS, countries
 - **Privacy-minded**: raw IPs are never stored (keyed hash only); referrers are stored as hostnames only; bots and link-preview fetchers are not counted
-- **Fast redirects**: clicks are buffered in memory and written in batches after the redirect is sent
+- **Fast redirects**: recently used links are served from a small in-memory cache, and clicks are buffered in memory and written in batches after the redirect is sent
 - **Dashboard** with per-link and overall views, refreshing every 30 seconds
 
 ## Quick start
@@ -52,10 +52,11 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 linkpulse/
 ├── server/            Express API + redirect service
 │   ├── db/schema.sql  Database schema (idempotent)
-│   └── src/
-│       ├── routes/    auth, links, stats, redirect
-│       ├── services/  slug, URL validation, click parsing/logging, rate limiting
-│       └── middleware/
+│   ├── src/
+│   │   ├── routes/    auth, links, stats, redirect
+│   │   ├── services/  slug, slug cache, URL validation, click parsing/logging, rate limiting
+│   │   └── middleware/
+│   └── test/          Unit tests (`npm test`)
 ├── client/            React dashboard (Vite)
 ├── docs/              API reference, architecture, deployment
 └── docker-compose.yml Local Postgres
@@ -66,7 +67,7 @@ linkpulse/
 | Doc | What is in it |
 |---|---|
 | [docs/API.md](docs/API.md) | Every HTTP endpoint with request/response examples |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How redirects, click logging, password and one-time links work |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How redirects, the slug cache, click logging, password and one-time links work |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Configuration reference and production setup |
 | [server/README.md](server/README.md) | Server-specific notes |
 | [client/README.md](client/README.md) | Dashboard-specific notes |
@@ -76,7 +77,7 @@ linkpulse/
 
 ## Roadmap
 
-Slug caching, custom domains, webhooks, CSV export, tests. See [CHANGELOG.md](CHANGELOG.md) for what has shipped.
+Custom domains, webhooks, CSV export, a shared cache for multi-instance setups, broader test coverage (route and database tests). See [CHANGELOG.md](CHANGELOG.md) for what has shipped.
 
 ## License
 

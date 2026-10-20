@@ -2,7 +2,7 @@
 
 ```
 Browser ──► React dashboard (Vite) ──/api──► Express ──► PostgreSQL
-Visitor ──► GET /:slug ───────────────────► Express ──► PostgreSQL (links)
+Visitor ──► GET /:slug ───────────────────► Express ──► slug cache ──miss──► PostgreSQL (links)
                                                └─► in-memory click buffer ─► batch INSERT (clicks)
 ```
 
@@ -18,13 +18,27 @@ Deleting a user or link cascades to their links/clicks.
 
 ## Redirect flow
 
-1. Look up the slug. Missing/paused → 404; expired → 410; click limit reached → 410.
+1. Look up the slug (in-memory cache first, then Postgres). Missing/paused → 404; expired → 410; click limit reached → 410.
 2. Password link: show a form. Nothing is consumed or logged until the right password arrives by `POST`.
 3. Click-limited link (`max_clicks` set; 1 = one-time): claim a visit with
    `UPDATE links SET used_clicks = used_clicks + 1 WHERE id=$1 AND max_clicks IS NOT NULL AND used_clicks < max_clicks AND is_active AND (expires_at IS NULL OR expires_at > now())`.
    Concurrent requests serialize on the row lock and each re-checks `used_clicks < max_clicks`, so exactly `max_clicks - used_clicks` of them see `rowCount = 1`; the rest get 410. `HEAD` requests and bot user agents never claim a visit, so chat apps that unfurl a pasted link don't use it up. Unlimited links skip this write entirely.
 4. Respond with `302` (`303` after the password POST). Never `301`: cached redirects would bypass expiry, pausing, one-time use and analytics.
 5. After responding, push the click into the in-memory buffer.
+
+## Slug cache
+
+`services/slugCache.js` keeps recent link rows in a bounded LRU `Map` (default 1,000 entries, 60 s TTL; `SLUG_CACHE_TTL_SECONDS=0` turns it off).
+
+- Only **unlimited** links are cached. A click-limited link changes on every visit (`used_clicks`), so it always reads Postgres.
+- Unknown slugs are never cached, so a new link works immediately and slug scans can't fill the cache.
+- `PATCH` and `DELETE` call `invalidate(slug)`. A global epoch counter makes a lookup that started before an invalidation drop its result instead of caching a pre-edit row.
+- `expires_at` and `is_active` are checked on every request against the cached row, so expiry still takes effect on time.
+- It is per process, like the password limiter. With several instances, only the one that handled the `PATCH`/`DELETE` is cleared; the others serve the old row until the TTL ends. Lower the TTL, or disable the cache, if that delay is not acceptable.
+- Only the API invalidates it. A link changed by hand in SQL, or removed by deleting its user (which cascades to their links), is picked up after the TTL or a restart.
+- The cached row includes the link's password hash, held in the server's memory like any other row it reads.
+
+When you add code that changes a link's slug, destination, active state, expiry, password or limit, call `invalidate(slug)` after the write. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Click logging
 
@@ -49,3 +63,4 @@ Vite + React, no router: `App.jsx` switches between Overview, Links and Link det
 - JWT in `localStorage`: simple, but exposed to XSS. Consider httpOnly cookies if you add untrusted content to the dashboard.
 - Server-rendered HTML for gate/error pages so they work without the dashboard and from any device.
 - No ORM: plain SQL through `pg`.
+- Slug cache in process memory rather than Redis: no new infrastructure and no network hop on the hot path. The cost is the per-instance staleness window described above. A shared cache is the next step if you scale out.

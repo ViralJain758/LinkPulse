@@ -12,6 +12,9 @@ jobs:
       - name: Server syntax check
         working-directory: server
         run: npm ci && find src -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Server tests
+        working-directory: server
+        run: npm test
       - name: Client build
         working-directory: client
         run: npm ci && npm run build

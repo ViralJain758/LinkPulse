@@ -11,6 +11,8 @@
 | `CLIENT_ORIGIN` | no | `http://localhost:5173` | Allowed CORS origin for the dashboard |
 | `TRUST_PROXY` | no | off | Express `trust proxy`: `1` behind one proxy/CDN, a hop count, or `loopback`/CIDR list |
 | `IP_HASH_SECRET` | no | `JWT_SECRET` | Key for hashing visitor IPs. Changing it resets unique-visitor continuity |
+| `SLUG_CACHE_TTL_SECONDS` | no | `60` | How long the redirect caches a link lookup. `0` disables the cache. With several instances this is how long an edit/delete can take to reach the others |
+| `SLUG_CACHE_MAX` | no | `1000` | Maximum cached links per process (least recently used are dropped first) |
 
 Node 20.6+ is required (`--env-file`).
 
@@ -30,7 +32,9 @@ The script is idempotent and is also how you upgrade (v4 replaces `links.one_tim
 4. **HTTPS** via your reverse proxy or platform.
 5. **`TRUST_PROXY`**: set it to match the proxy setup. Without it every visitor has the proxy's IP, unique visitors collapse to 1 and the password rate limiter blocks everyone together.
 6. **Countries:** the server only reads CDN headers (`CF-IPCountry`, `X-Vercel-IP-Country`, `CloudFront-Viewer-Country`). Without a CDN the country column stays empty.
-7. **Short domain routing:** the proxy must send `/:slug` and `POST /:slug` to Node. If the dashboard shares the domain, see the example below.
+7. **Several instances:** the slug cache and the password limiter are per process. After a `PATCH` or `DELETE`, other instances can serve the old link for up to `SLUG_CACHE_TTL_SECONDS`. Lower it, or set it to `0`, if links must change everywhere at once.
+8. **Manual database edits:** the cache only learns about changes made through the API. After editing `links` rows with SQL, wait for the TTL or restart the server.
+9. **Short domain routing:** the proxy must send `/:slug` and `POST /:slug` to Node. If the dashboard shares the domain, see the example below.
 
 ## Example nginx (single domain)
 

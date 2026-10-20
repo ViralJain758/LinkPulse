@@ -58,6 +58,8 @@ Changing `maxClicks` keeps `usedClicks`: raising 5 to 10 after 5 visits leaves 5
 ### `DELETE /api/links/:id`
 `204`. Deletes the link and its clicks.
 
+**When changes reach visitors.** The redirect caches link lookups in memory (see [ARCHITECTURE.md](ARCHITECTURE.md#slug-cache)). A successful `PATCH` or `DELETE` clears the cached entry on the server that handled it, so pausing, re-pointing, changing the password or deleting a link applies to the next visit. When several server instances run, each has its own cache and the others keep serving the previous version for up to `SLUG_CACHE_TTL_SECONDS` (60 by default; `0` disables the cache). `expiresAt` is always enforced on time, even for a cached link.
+
 ## Stats (auth required)
 
 Query params: `range` = `24h` (hourly buckets), `7d`, `30d`, `90d` (daily; default `7d`); `tz` = IANA zone (default `UTC`).
@@ -95,6 +97,8 @@ Response (overview adds `totalLinks` and `topLinks`; link stats add `link`):
 | Link with a click limit, normal browser | one visit atomically consumed, then `302` |
 | Link with a click limit, bot/preview or `HEAD` | `200` neutral page, **not** consumed |
 | Password link | `200` password form (nothing consumed or logged) |
+
+Lookups of links without a click limit may be served from the in-memory slug cache, so a response can reflect a `PATCH`/`DELETE` made on another server instance only after the TTL (see above). Click-limited links always read the database. Redirect responses are never cached by browsers or proxies (`302` with `Cache-Control: no-store`).
 
 `?s=qr` marks the visit as a QR scan. The dashboard's QR codes encode `/<slug>?s=qr`; any other value of `s` is ignored. The tag is kept through the password form.
 

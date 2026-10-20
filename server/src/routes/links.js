@@ -4,6 +4,7 @@ import { query, isUniqueViolation } from '../db.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validateTargetUrl } from '../services/validateUrl.js';
+import { invalidate } from '../services/slugCache.js';
 import {
   generateSlug,
   isReservedSlug,
@@ -207,6 +208,7 @@ router.patch('/:id', async (req, res, next) => {
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Link not found' });
+    invalidate(rows[0].slug);
     res.json(toResponse(rows[0]));
   } catch (err) {
     next(err);
@@ -219,11 +221,12 @@ router.delete('/:id', async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
 
-    const { rowCount } = await query(
-      'DELETE FROM links WHERE id = $1 AND user_id = $2',
+    const { rows } = await query(
+      'DELETE FROM links WHERE id = $1 AND user_id = $2 RETURNING slug',
       [id, req.user.id]
     );
-    if (rowCount === 0) return res.status(404).json({ error: 'Link not found' });
+    if (!rows[0]) return res.status(404).json({ error: 'Link not found' });
+    invalidate(rows[0].slug);
     res.status(204).end();
   } catch (err) {
     next(err);

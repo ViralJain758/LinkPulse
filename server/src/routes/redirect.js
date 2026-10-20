@@ -4,6 +4,7 @@ import { query } from '../db.js';
 import { logClick } from '../services/clickLogger.js';
 import { parseUserAgent } from '../services/clickParser.js';
 import { isBlocked, recordFailure, clearFailures } from '../services/rateLimit.js';
+import { getCached, setCached, currentEpoch } from '../services/slugCache.js';
 
 const router = Router();
 
@@ -59,6 +60,19 @@ function passwordPage(res, slug, error, status = 200, source = null) {
 const SELECT =
   'SELECT id, target_url, is_active, expires_at, password_hash, max_clicks, used_clicks FROM links WHERE slug = $1';
 
+// Cache-aware lookup. Click-limited links are never cached because used_clicks changes on
+// every visit; the epoch check stops a lookup that raced with a PATCH/DELETE from caching
+// the pre-edit row.
+async function findLink(slug) {
+  const cached = getCached(slug);
+  if (cached) return cached;
+  const epoch = currentEpoch();
+  const { rows } = await query(SELECT, [slug]);
+  const link = rows[0];
+  if (link && link.max_clicks == null) setCached(slug, link, epoch);
+  return link;
+}
+
 const limited = (link) => link.max_clicks != null;
 const exhausted = (link) => limited(link) && link.used_clicks >= link.max_clicks;
 const usedUp = (res, link) =>
@@ -113,8 +127,7 @@ const rateKey = (req, slug) => `${req.ip}|${slug}`;
 // GET|HEAD /:slug  (public, must be registered AFTER all other routes)
 router.get('/:slug', async (req, res, next) => {
   try {
-    const { rows } = await query(SELECT, [req.params.slug]);
-    const link = rows[0];
+    const link = await findLink(req.params.slug);
     if (checkServable(link, res)) return;
 
     if (link.password_hash) return passwordPage(res, req.params.slug, null, 200, sourceOf(req));
@@ -138,8 +151,7 @@ router.get('/:slug', async (req, res, next) => {
 router.post('/:slug', urlencoded({ extended: false, limit: '2kb' }), async (req, res, next) => {
   try {
     const slug = req.params.slug;
-    const { rows } = await query(SELECT, [slug]);
-    const link = rows[0];
+    const link = await findLink(slug);
     if (checkServable(link, res)) return;
     const source = sourceOf(req);
     if (!link.password_hash) return res.redirect(303, `/${encodeURIComponent(slug)}${source ? `?s=${source}` : ''}`);
