@@ -1,0 +1,16 @@
+# Local development database only. Do not use these credentials in production.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: linkpulse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied automatically the first time the volume is created
+      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+volumes:
+  pgdata:
