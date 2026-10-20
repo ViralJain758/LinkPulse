@@ -20,9 +20,9 @@ Requires Node 20.6+ (uses `--env-file`). Configuration is documented in [docs/DE
 |---|---|
 | `src/index.js` | App wiring, error handler, graceful shutdown (flushes buffered clicks) |
 | `src/routes/auth.js` | Register / login |
-| `src/routes/links.js` | Link CRUD (passwords, one-time, expiry) |
+| `src/routes/links.js` | Link CRUD (passwords, click limits, expiry) |
 | `src/routes/stats.js` | Analytics queries |
-| `src/routes/redirect.js` | Public `GET/POST /:slug`, password and one-time handling (must stay last) |
+| `src/routes/redirect.js` | Public `GET/POST /:slug`, password and click-limit handling, QR source tag (must stay last) |
 | `src/services/` | `slug`, `validateUrl`, `clickParser`, `clickLogger`, `referrerLabels`, `rateLimit` |
 | `db/schema.sql` | Schema |
 
@@ -36,7 +36,7 @@ curl "localhost:4000/api/stats/overview?range=7d" -H "Authorization: Bearer <TOK
 
 ## Behaviour notes
 
-- Bots and link-preview fetchers (WhatsApp, Telegram, Slack, curl...) and `HEAD` requests are not counted and never consume one-time links.
+- Bots and link-preview fetchers (WhatsApp, Telegram, Slack, curl...) and `HEAD` requests are not counted and never use up a click-limited link's visits.
 - Clicks are batched every second; a hard crash can lose about a second of clicks.
 - Country needs a CDN header (Cloudflare, Vercel, CloudFront); otherwise it is empty.
 

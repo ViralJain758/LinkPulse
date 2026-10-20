@@ -3,11 +3,14 @@ import { api, useFetch } from './api.js';
 import { ErrorNote } from './ui.jsx';
 import { fmt, fmtDate } from './format.js';
 import QrModal from './QrModal.jsx';
+import EditModal from './EditModal.jsx';
+
+const isExhausted = (l) => l.maxClicks != null && l.usedClicks >= l.maxClicks;
 
 function status(link) {
   if (!link.isActive) return { key: 'paused', text: 'Paused' };
-  if (link.oneTime && link.usedAt) return { key: 'used', text: 'Used' };
   if (link.expiresAt && new Date(link.expiresAt) <= new Date()) return { key: 'expired', text: 'Expired' };
+  if (isExhausted(link)) return { key: 'used', text: link.maxClicks === 1 ? 'Used' : 'Limit reached' };
   return { key: 'active', text: 'Active' };
 }
 
@@ -16,7 +19,7 @@ function CreateForm({ onCreated }) {
   const [slug, setSlug] = useState('');
   const [expires, setExpires] = useState('');
   const [password, setPassword] = useState('');
-  const [oneTime, setOneTime] = useState(false);
+  const [maxClicks, setMaxClicks] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -30,13 +33,13 @@ function CreateForm({ onCreated }) {
         ...(slug && { slug }),
         ...(expires && { expiresAt: new Date(expires).toISOString() }),
         ...(password && { password }),
-        ...(oneTime && { oneTime: true }),
+        ...(maxClicks && { maxClicks: Number(maxClicks) }),
       });
       setUrl('');
       setSlug('');
       setExpires('');
       setPassword('');
-      setOneTime(false);
+      setMaxClicks('');
       onCreated();
     } catch (err) {
       setError(err.message);
@@ -63,9 +66,9 @@ function CreateForm({ onCreated }) {
         Password (optional)
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={4} maxLength={72} autoComplete="new-password" placeholder="Visitors must enter it" />
       </label>
-      <label className="check">
-        <input type="checkbox" checked={oneTime} onChange={(e) => setOneTime(e.target.checked)} />
-        One-time link (works once)
+      <label>
+        Click limit (optional)
+        <input type="number" min="1" max="1000000" step="1" inputMode="numeric" value={maxClicks} onChange={(e) => setMaxClicks(e.target.value)} placeholder="Unlimited (1 = one-time)" />
       </label>
       <button className="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
       {error && <p className="error full" role="alert">{error}</p>}
@@ -78,6 +81,7 @@ export default function LinksPage({ onOpenLink }) {
   const [copied, setCopied] = useState(null);
   const [actionError, setActionError] = useState('');
   const [qrLink, setQrLink] = useState(null);
+  const [editLink, setEditLink] = useState(null);
 
   async function copy(link) {
     try {
@@ -100,7 +104,7 @@ export default function LinksPage({ onOpenLink }) {
   }
 
   const toggle = (l) => act(() => api.updateLink(l.id, { isActive: !l.isActive }));
-  const rearm = (l) => act(() => api.updateLink(l.id, { oneTime: true }));
+  const resetCount = (l) => act(() => api.updateLink(l.id, { resetClicks: true }));
   const setPassword = (l) => {
     const next = window.prompt(`New password for /${l.slug} (min 4 characters). Leave empty to remove the password.`);
     if (next === null) return;
@@ -116,6 +120,7 @@ export default function LinksPage({ onOpenLink }) {
     <>
       <h1>Links</h1>
       {qrLink && <QrModal link={qrLink} onClose={() => setQrLink(null)} />}
+      {editLink && <EditModal link={editLink} onClose={() => setEditLink(null)} onSaved={reload} />}
       <CreateForm onCreated={reload} />
       {actionError && <ErrorNote message={actionError} />}
       {error && !links ? (
@@ -154,14 +159,20 @@ export default function LinksPage({ onOpenLink }) {
                     <td>
                       <span className={`pill ${s.key}`}>{s.text}</span>
                       {l.hasPassword && <span className="pill tag" title="Visitors must enter a password">Password</span>}
-                      {l.oneTime && s.key !== 'used' && <span className="pill tag" title="Stops working after one visit">One-time</span>}
+                      {l.maxClicks === 1 && s.key !== 'used' && <span className="pill tag" title="Stops working after one visit">One-time</span>}
+                      {l.maxClicks > 1 && (
+                        <span className="pill tag" title="Stops working after this many visits">{fmt(l.usedClicks)} / {fmt(l.maxClicks)} visits</span>
+                      )}
                       {l.expiresAt && s.key === 'active' && <small className="muted"> until {fmtDate(l.expiresAt)}</small>}
                     </td>
                     <td className="muted">{fmtDate(l.createdAt)}</td>
                     <td className="actions">
                       <button className="link-btn" onClick={() => copy(l)}>{copied === l.id ? 'Copied' : 'Copy link'}</button>
                       <button className="link-btn" onClick={() => setQrLink(l)}>QR code</button>
-                      {l.oneTime && l.usedAt && <button className="link-btn" onClick={() => rearm(l)}>Re-arm</button>}
+                      <button className="link-btn" onClick={() => setEditLink(l)}>Edit</button>
+                      {l.maxClicks != null && l.usedClicks > 0 && (
+                        <button className="link-btn" onClick={() => resetCount(l)}>{isExhausted(l) ? 'Re-arm' : 'Reset count'}</button>
+                      )}
                       <button className="link-btn" onClick={() => setPassword(l)}>{l.hasPassword ? 'Change password' : 'Add password'}</button>
                       <button className="link-btn" onClick={() => toggle(l)}>{l.isActive ? 'Pause' : 'Resume'}</button>
                       <button className="link-btn danger" onClick={() => remove(l)}>Delete</button>

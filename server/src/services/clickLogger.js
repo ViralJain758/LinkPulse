@@ -13,6 +13,10 @@ let buffer = [];
 let flushing = false;
 let timer = null;
 
+const COLUMNS = ['link_id', 'referrer', 'device_type', 'browser', 'os', 'country', 'ip_hash', 'source'];
+const values = (c) => [c.linkId, c.referrer, c.deviceType, c.browser, c.os, c.country, c.ipHash, c.source];
+const placeholders = (offset) => `(${COLUMNS.map((_, i) => `$${offset + i + 1}`).join(',')})`;
+
 async function flush() {
   if (flushing || buffer.length === 0) return;
   flushing = true;
@@ -20,13 +24,11 @@ async function flush() {
   try {
     const params = [];
     const tuples = batch.map((c, i) => {
-      const o = i * 7;
-      params.push(c.linkId, c.referrer, c.deviceType, c.browser, c.os, c.country, c.ipHash);
-      return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7})`;
+      params.push(...values(c));
+      return placeholders(i * COLUMNS.length);
     });
     await pool.query(
-      `INSERT INTO clicks (link_id, referrer, device_type, browser, os, country, ip_hash)
-       VALUES ${tuples.join(',')}`,
+      `INSERT INTO clicks (${COLUMNS.join(', ')}) VALUES ${tuples.join(',')}`,
       params
     );
   } catch (err) {
@@ -37,9 +39,8 @@ async function flush() {
       batch.map((c) =>
         pool
           .query(
-            `INSERT INTO clicks (link_id, referrer, device_type, browser, os, country, ip_hash)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [c.linkId, c.referrer, c.deviceType, c.browser, c.os, c.country, c.ipHash]
+            `INSERT INTO clicks (${COLUMNS.join(', ')}) VALUES ${placeholders(0)}`,
+            values(c)
           )
           .catch((e) => console.error('click dropped:', e.message))
       )

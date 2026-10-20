@@ -39,21 +39,32 @@ button{margin-top:12px;background:#2f5bff;border-color:#2f5bff;color:#fff;font-w
 const message = (res, status, title, text) =>
   sendPage(res, status, title, `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p>`);
 
-function passwordPage(res, slug, error, status = 200) {
+// Only the known tag is honoured, so the query string can't be used to inject arbitrary
+// values into the stats. QR codes encode /slug?s=qr.
+const sourceOf = (req) => (req.query.s === 'qr' ? 'qr' : null);
+
+function passwordPage(res, slug, error, status = 200, source = null) {
   sendPage(
     res,
     status,
     'Password required',
     `<h1>Password required</h1>
 <p${error ? ' class="err" role="alert"' : ''}>${escapeHtml(error || 'Enter the password to continue to this link.')}</p>
-<form method="post" action="/${encodeURIComponent(slug)}" autocomplete="off">
+<form method="post" action="/${encodeURIComponent(slug)}${source ? `?s=${source}` : ''}" autocomplete="off">
 <input type="password" name="password" aria-label="Password" required autofocus>
 <button type="submit">Continue</button></form>`
   );
 }
 
 const SELECT =
-  'SELECT id, target_url, is_active, expires_at, password_hash, one_time, used_at FROM links WHERE slug = $1';
+  'SELECT id, target_url, is_active, expires_at, password_hash, max_clicks, used_clicks FROM links WHERE slug = $1';
+
+const limited = (link) => link.max_clicks != null;
+const exhausted = (link) => limited(link) && link.used_clicks >= link.max_clicks;
+const usedUp = (res, link) =>
+  link.max_clicks === 1
+    ? message(res, 410, 'Link already used', 'This was a one-time link and it has already been used.')
+    : message(res, 410, 'Link limit reached', 'This link has reached its maximum number of visits.');
 
 // Sends the error page and returns true when the link can't be served.
 function checkServable(link, res) {
@@ -65,20 +76,22 @@ function checkServable(link, res) {
     message(res, 410, 'Link expired', 'This link has expired.');
     return true;
   }
-  if (link.one_time && link.used_at) {
-    message(res, 410, 'Link already used', 'This was a one-time link and it has already been used.');
+  if (exhausted(link)) {
+    usedUp(res, link);
     return true;
   }
   return false;
 }
 
-// Atomically claims a one-time link. Two simultaneous visitors can't both win: only the
-// UPDATE that still sees used_at IS NULL returns a row. Expiry/active are re-checked here
-// so a link paused or expired while the password form was open is not consumed or followed.
+// Atomically claims one visit of a click-limited link. Concurrent visitors can't overshoot
+// the limit: the UPDATE only matches while used_clicks < max_clicks, and Postgres re-checks
+// that condition against the latest row version, so exactly (max - used) of them get a row.
+// Expiry/active are re-checked here so a link paused or expired while the password form
+// was open is not consumed or followed.
 async function consume(link) {
   const { rowCount } = await query(
-    `UPDATE links SET used_at = now()
-     WHERE id = $1 AND used_at IS NULL AND is_active
+    `UPDATE links SET used_clicks = used_clicks + 1
+     WHERE id = $1 AND max_clicks IS NOT NULL AND used_clicks < max_clicks AND is_active
        AND (expires_at IS NULL OR expires_at > now())`,
     [link.id]
   );
@@ -104,17 +117,15 @@ router.get('/:slug', async (req, res, next) => {
     const link = rows[0];
     if (checkServable(link, res)) return;
 
-    if (link.password_hash) return passwordPage(res, req.params.slug);
+    if (link.password_hash) return passwordPage(res, req.params.slug, null, 200, sourceOf(req));
 
-    if (link.one_time) {
-      // HEAD requests and link-preview bots (Slack, WhatsApp...) would otherwise burn the
-      // link before the real recipient clicks it. They get a page that reveals nothing.
+    if (limited(link)) {
+      // HEAD requests and link-preview bots (Slack, WhatsApp...) would otherwise use up
+      // visits before real recipients click. They get a page that reveals nothing.
       if (req.method !== 'GET' || parseUserAgent(req.get('user-agent')).isBot) {
-        return message(res, 200, 'One-time link', 'Open this link in a browser to continue. It works only once.');
+        return message(res, 200, 'Limited link', 'Open this link in a browser to continue. It can only be used a limited number of times.');
       }
-      if (!(await consume(link))) {
-        return message(res, 410, 'Link already used', 'This was a one-time link and it has already been used.');
-      }
+      if (!(await consume(link))) return usedUp(res, link);
     }
 
     follow(link, req, res, { post: false });
@@ -130,24 +141,23 @@ router.post('/:slug', urlencoded({ extended: false, limit: '2kb' }), async (req,
     const { rows } = await query(SELECT, [slug]);
     const link = rows[0];
     if (checkServable(link, res)) return;
-    if (!link.password_hash) return res.redirect(303, `/${encodeURIComponent(slug)}`);
+    const source = sourceOf(req);
+    if (!link.password_hash) return res.redirect(303, `/${encodeURIComponent(slug)}${source ? `?s=${source}` : ''}`);
 
     const key = rateKey(req, slug);
     if (isBlocked(key)) {
       res.set('Retry-After', '900');
-      return passwordPage(res, slug, 'Too many wrong attempts. Try again in 15 minutes.', 429);
+      return passwordPage(res, slug, 'Too many wrong attempts. Try again in 15 minutes.', 429, source);
     }
 
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     if (!password || !(await bcrypt.compare(password, link.password_hash))) {
       recordFailure(key);
-      return passwordPage(res, slug, 'Wrong password. Try again.', 401);
+      return passwordPage(res, slug, 'Wrong password. Try again.', 401, source);
     }
     clearFailures(key);
 
-    if (link.one_time && !(await consume(link))) {
-      return message(res, 410, 'Link already used', 'This was a one-time link and it has already been used.');
-    }
+    if (limited(link) && !(await consume(link))) return usedUp(res, link);
     follow(link, req, res, { post: true });
   } catch (err) {
     next(err);

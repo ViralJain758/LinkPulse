@@ -1,15 +1,15 @@
 # LinkPulse
 
-A self-hosted URL shortener with built-in click analytics. Create short links, protect them with a password or make them single-use, share them as QR codes, and watch the clicks come in on a live dashboard.
+A self-hosted URL shortener with built-in click analytics. Create short links, protect them with a password, limit them to a number of visits, share them as QR codes, and watch the clicks come in on a live dashboard.
 
 > Stack: Node.js (Express) · PostgreSQL · React (Vite) · Recharts
 
 ## Features
 
-- **Short links** with random or custom slugs, optional expiry, pause/resume and delete
+- **Short links** with random or custom slugs, optional expiry, pause/resume, edit (destination, expiry, limit) and delete
 - **Password-protected links**: visitors must enter a password first (bcrypt-hashed, brute-force limited)
-- **One-time links**: work exactly once, safe against link-preview bots and simultaneous visitors
-- **QR codes** for every link, downloadable as PNG or SVG
+- **Click limits**: "expire after N clicks" (1 = one-time link), safe against link-preview bots and simultaneous visitors
+- **QR codes** for every link, downloadable as PNG or SVG; scans are tracked as their own "QR code" source
 - **Click analytics**: totals, unique visitors, time series, sources (referrers), devices, browsers, OS, countries
 - **Privacy-minded**: raw IPs are never stored (keyed hash only); referrers are stored as hostnames only; bots and link-preview fetchers are not counted
 - **Fast redirects**: clicks are buffered in memory and written in batches after the redirect is sent
@@ -76,7 +76,7 @@ linkpulse/
 
 ## Roadmap
 
-QR scan tracking, editing links in the UI, click-limit links ("expire after N clicks"), slug caching, custom domains, webhooks, CSV export, tests. See [CHANGELOG.md](CHANGELOG.md) for what has shipped.
+Slug caching, custom domains, webhooks, CSV export, tests. See [CHANGELOG.md](CHANGELOG.md) for what has shipped.
 
 ## License
 

@@ -8,7 +8,7 @@ Please do **not** open a public issue. Report privately through GitHub's "Report
 
 - **Accounts:** passwords hashed with bcrypt (cost 10). Sessions are JWTs (HS256, 7-day expiry) signed with `JWT_SECRET`. There is no token revocation yet.
 - **Link passwords:** bcrypt-hashed, 4-72 bytes. Wrong guesses are limited to 5 per visitor IP and slug per 15 minutes (in memory, per process).
-- **One-time links:** consumed with a single atomic `UPDATE`, so concurrent visitors cannot both succeed.
+- **Click limits (including one-time links):** consumed with a single atomic `UPDATE`, so concurrent visitors cannot exceed the limit.
 - **Visitor privacy:** IPs are stored only as an HMAC-SHA256 keyed by `IP_HASH_SECRET`; referrers are reduced to hostnames.
 - **Open-redirect/abuse controls:** only `http(s)` targets, max 2048 characters, and links to the service's own host are rejected. There is no malware/phishing screening of destinations.
 - **SQL:** parameterized queries throughout.

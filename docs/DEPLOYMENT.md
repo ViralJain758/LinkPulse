@@ -20,7 +20,7 @@ Node 20.6+ is required (`--env-file`).
 psql "$DATABASE_URL" -f server/db/schema.sql
 ```
 
-The script is idempotent and is also how you upgrade (for example v3 adds `links.used_at`). Run it after pulling new versions.
+The script is idempotent and is also how you upgrade (v4 replaces `links.one_time`/`used_at` with `max_clicks`/`used_clicks`, migrating existing one-time links, and adds `clicks.source`). Run it after pulling new versions, **before or together with** starting the new server: the old server does not know the new columns, and the new one does not know the old ones.
 
 ## Production checklist
 

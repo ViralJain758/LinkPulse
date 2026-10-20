@@ -21,8 +21,8 @@ const toResponse = (row) => ({
   expiresAt: row.expires_at,
   isActive: row.is_active,
   hasPassword: row.password_hash != null,
-  oneTime: row.one_time,
-  usedAt: row.used_at,
+  maxClicks: row.max_clicks,
+  usedClicks: row.used_clicks,
   createdAt: row.created_at,
   // Only present when the query selected it (the list endpoint)
   ...(row.click_count !== undefined && { clickCount: row.click_count }),
@@ -47,9 +47,29 @@ function parsePassword(input) {
   return { value: input };
 }
 
+const MAX_CLICK_LIMIT = 1_000_000;
+
+// Returns { value: integer|null } or { error }. null/'' means "no limit".
+function parseMaxClicks(input) {
+  if (input === undefined || input === null || input === '') return { value: null };
+  if (!Number.isInteger(input) || input < 1 || input > MAX_CLICK_LIMIT) {
+    return { error: `maxClicks must be a whole number from 1 to ${MAX_CLICK_LIMIT.toLocaleString('en-US')}` };
+  }
+  return { value: input };
+}
+
+// `oneTime: true` is the pre-v4 spelling of `maxClicks: 1`; still accepted on input.
+// Returns { value } (undefined = field not sent) or { error }.
+function readLimit(body) {
+  if (body?.maxClicks !== undefined) return parseMaxClicks(body.maxClicks);
+  if (body?.oneTime === true) return { value: 1 };
+  if (body?.oneTime === false) return { value: null };
+  return { value: undefined };
+}
+
 const MAX_SLUG_ATTEMPTS = 5;
 
-// POST /api/links  { url, slug?, expiresAt?, password?, oneTime? }
+// POST /api/links  { url, slug?, expiresAt?, password?, maxClicks? }
 router.post('/', async (req, res, next) => {
   try {
     const target = validateTargetUrl(req.body?.url);
@@ -61,7 +81,8 @@ router.post('/', async (req, res, next) => {
     const pw = parsePassword(req.body?.password);
     if (pw.error) return res.status(400).json({ error: pw.error });
     const passwordHash = pw.value ? await bcrypt.hash(pw.value, 10) : null;
-    const oneTime = req.body?.oneTime === true;
+    const limit = readLimit(req.body);
+    if (limit.error) return res.status(400).json({ error: limit.error });
 
     const customSlug = req.body?.slug ? String(req.body.slug) : null;
     if (customSlug) {
@@ -77,9 +98,9 @@ router.post('/', async (req, res, next) => {
 
     const insert = (slug) =>
       query(
-        `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, one_time)
+        `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, max_clicks)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [req.user.id, slug, target.url, expiry.value, passwordHash, oneTime]
+        [req.user.id, slug, target.url, expiry.value, passwordHash, limit.value ?? null]
       );
 
     // Custom slug: one attempt, a collision is the user's problem to fix
@@ -125,8 +146,12 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// PATCH /api/links/:id  { isActive?, url?, expiresAt?, password? (null removes), oneTime? }
-// Sending oneTime: true always re-arms the link (clears its used state).
+// PATCH /api/links/:id
+//   { isActive?, url?, expiresAt? (null clears), password? (null removes),
+//     maxClicks? (null removes the limit), resetClicks? (true zeroes the used counter) }
+// Changing maxClicks keeps the used counter, so raising 5 -> 10 after 5 visits leaves 5 more;
+// removing the limit also zeroes the counter. The pre-v4 `oneTime: true` still works and
+// re-arms the link (limit 1, counter 0).
 router.patch('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -159,10 +184,16 @@ router.patch('/:id', async (req, res, next) => {
       add('password_hash', pw.value ? await bcrypt.hash(pw.value, 10) : null);
     }
 
-    if (typeof req.body?.oneTime === 'boolean') {
-      add('one_time', req.body.oneTime);
-      if (req.body.oneTime) sets.push('used_at = NULL');
+    const limit = readLimit(req.body);
+    if (limit.error) return res.status(400).json({ error: limit.error });
+    if (limit.value !== undefined) {
+      add('max_clicks', limit.value);
+      // No limit -> nothing to count; legacy oneTime:true -> re-arm
+      if (limit.value === null || (req.body.maxClicks === undefined && req.body.oneTime === true)) {
+        sets.push('used_clicks = 0');
+      }
     }
+    if (req.body?.resetClicks === true && !sets.includes('used_clicks = 0')) sets.push('used_clicks = 0');
 
     if (sets.length === 0) {
       return res.status(400).json({ error: 'Nothing to update' });

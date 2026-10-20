@@ -8,6 +8,10 @@ function download(href, filename) {
   a.click();
 }
 
+// Scans are tagged so analytics can tell them apart from other direct visits.
+// The visible URL stays the plain short link; only the encoded one carries the tag.
+const qrUrl = (link) => `${link.shortUrl}?s=qr`;
+
 // Always black on white: inverted (dark mode) codes fail on many scanners and when printed.
 export default function QrModal({ link, onClose }) {
   const ref = useRef(null);
@@ -16,14 +20,14 @@ export default function QrModal({ link, onClose }) {
 
   useEffect(() => {
     ref.current?.showModal();
-    QRCode.toString(link.shortUrl, { type: 'svg', margin: 2, errorCorrectionLevel: 'M' })
+    QRCode.toString(qrUrl(link), { type: 'svg', margin: 2, errorCorrectionLevel: 'M' })
       .then(setSvg)
       .catch(() => setError('Could not generate the QR code.'));
   }, [link.shortUrl]);
 
   const savePng = async () => {
     try {
-      download(await QRCode.toDataURL(link.shortUrl, { width: 1024, margin: 2, errorCorrectionLevel: 'M' }), `${link.slug}-qr.png`);
+      download(await QRCode.toDataURL(qrUrl(link), { width: 1024, margin: 2, errorCorrectionLevel: 'M' }), `${link.slug}-qr.png`);
     } catch {
       setError('Could not generate the PNG.');
     }
@@ -39,9 +43,11 @@ export default function QrModal({ link, onClose }) {
       <h2>QR code for /{link.slug}</h2>
       {error ? <p className="error" role="alert">{error}</p> : <div className="qr" role="img" aria-label={`QR code for ${link.shortUrl}`} dangerouslySetInnerHTML={{ __html: svg }} />}
       <p className="muted qr-url">{link.shortUrl}</p>
-      {(link.hasPassword || link.oneTime) && (
+      <p className="muted qr-note">Scans are counted as “QR code” in Sources. Codes you printed before this update are counted as direct visits.</p>
+      {(link.hasPassword || link.maxClicks != null) && (
         <p className="muted qr-note">
-          {link.oneTime ? 'One-time link: the first scan uses it up. ' : ''}
+          {link.maxClicks === 1 ? 'One-time link: the first scan uses it up. ' : ''}
+          {link.maxClicks > 1 ? `Click limit: every scan counts towards the ${link.maxClicks} allowed visits. ` : ''}
           {link.hasPassword ? 'Scanners will be asked for the password.' : ''}
         </p>
       )}

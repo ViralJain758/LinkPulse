@@ -66,5 +66,7 @@ export function buildClick(linkId, req) {
     os: ua.os,
     country: parseCountry(req),
     ipHash: hashIp(req.ip),
+    // Whitelisted tag from the short URL (/slug?s=qr); anything else is ignored
+    source: req.query?.s === 'qr' ? 'qr' : null,
   };
 }

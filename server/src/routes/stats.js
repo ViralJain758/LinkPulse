@@ -47,12 +47,12 @@ async function computeStats({ scope, scopeParam, range, tz }) {
   const sinceSql = `(date_trunc('${range.unit}', now() AT TIME ZONE $2)
                      - ${range.buckets - 1} * interval '${range.step}') AT TIME ZONE $2`;
 
-  const breakdown = (column, limit = 200) =>
+  const breakdown = (column, limit = 200, tag = '') =>
     query(
-      `SELECT ${column} AS name, COUNT(*)::int AS clicks
+      `SELECT ${column} AS name${tag ? `, ${tag} AS source` : ''}, COUNT(*)::int AS clicks
        FROM clicks c
        WHERE ${scope} AND c.clicked_at >= ${sinceSql}
-       GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT ${limit}`,
+       GROUP BY ${tag ? '1, 2' : '1'} ORDER BY ${tag ? '3' : '2'} DESC, 1 LIMIT ${limit}`,
       [scopeParam, tz]
     );
 
@@ -81,17 +81,18 @@ async function computeStats({ scope, scopeParam, range, tz }) {
        ORDER BY s.b`,
       [scopeParam, tz]
     ),
-    breakdown('c.referrer'),
+    breakdown('c.referrer', 200, 'c.source'),
     breakdown("COALESCE(c.device_type, 'unknown')", 10),
     breakdown("COALESCE(c.browser, 'Unknown')", 10),
     breakdown("COALESCE(c.os, 'Unknown')", 10),
     breakdown("COALESCE(c.country, 'Unknown')", 10),
   ]);
 
-  // Group raw referrer hosts under friendly names (t.co + x.com -> Twitter / X)
+  // Group raw referrer hosts under friendly names (t.co + x.com -> Twitter / X).
+  // A QR-tagged scan counts as "QR code" whatever the referrer was.
   const sources = new Map();
-  for (const { name, clicks } of referrers.rows) {
-    const label = labelReferrer(name);
+  for (const { name, source, clicks } of referrers.rows) {
+    const label = source === 'qr' ? 'QR code' : labelReferrer(name);
     sources.set(label, (sources.get(label) || 0) + clicks);
   }
 
