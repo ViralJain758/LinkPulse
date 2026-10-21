@@ -1,4 +1,4 @@
--- Run after db/schema.sql:  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f test/sql/auth_smoke.sql
+-- Run after `npm run migrate`:  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f test/sql/auth_smoke.sql
 -- Exercises the session and one-time-token statements used by services/sessions.js and
 -- services/authTokens.js. Any failed assertion raises an exception and fails the run.
 BEGIN;

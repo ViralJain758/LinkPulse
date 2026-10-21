@@ -1,5 +1,6 @@
 # Optional: an offline local Postgres. LinkPulse's database is Supabase (see the README); use this only
 # without internet access or to try things out.
+# Create the tables afterwards with `cd server && npm run migrate`.
 # Local development database only. Do not use these credentials in production.
 services:
   db:
@@ -12,7 +13,5 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Applied automatically the first time the volume is created
-      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
 volumes:
   pgdata:

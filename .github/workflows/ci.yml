@@ -19,7 +19,7 @@ jobs:
         working-directory: client
         run: npm ci && npm run build
   database:
-    # The schema is meant to be re-run on existing databases, and the auth queries depend on it
+    # Migrations must apply cleanly from empty, roll back, and re-apply; the auth queries depend on the schema
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -32,14 +32,20 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/linkpulse
     steps:
       - uses: actions/checkout@v4
-      - name: Apply schema, then apply it again (must be re-runnable)
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+      - name: Migrate up, down (every migration), and up again
         working-directory: server
         run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
+          npm run migrate
+          npm run migrate:down -- all
+          npm run migrate
       - name: Rate limiter tests against Postgres
         working-directory: server
-        run: npm ci && node --test test/rateLimit.db.test.js
+        run: node --test test/rateLimit.db.test.js
       - name: Session and token SQL smoke test
         working-directory: server
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f test/sql/auth_smoke.sql

@@ -1,5 +1,7 @@
 # LinkPulse
 
+**Live demo:** https://linkpulse-vj.vercel.app
+
 [![CI](https://github.com/ViralJain758/LinkPulse/actions/workflows/ci.yml/badge.svg)](https://github.com/ViralJain758/LinkPulse/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A self-hosted URL shortener with built-in click analytics. Create short links, protect them with a password, limit them to a number of visits, share them as QR codes, and watch the clicks come in on a live dashboard.
@@ -27,7 +29,7 @@ Requirements: **Node.js 20.6+** and a [Supabase](https://supabase.com) project (
 ```bash
 git clone https://github.com/ViralJain758/LinkPulse.git && cd LinkPulse
 
-# 1. Database: create a Supabase project, open SQL Editor, paste server/db/schema.sql and run it.
+# 1. Database: create a Supabase project, put its Session pooler string in server/.env as DATABASE_URL, then run: cd server && npm install && npm run migrate
 #    (Offline instead? `docker compose up -d db` starts a local Postgres with the schema applied.)
 
 # 2. Server
@@ -44,7 +46,7 @@ npm run dev                      # http://localhost:5173
 
 Open http://localhost:5173, register an account, and create your first link.
 
-Upgrading from an earlier version? Re-run `server/db/schema.sql` (paste it into the Supabase SQL Editor, or `psql "$DATABASE_URL" -f server/db/schema.sql`; it is idempotent) before starting the new server.
+Upgrading from an earlier version? Run `npm run migrate` in `server/` before starting the new server. Databases that were set up from the old `schema.sql` are picked up automatically (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#database-migrations)).
 
 ## Custom domains
 
@@ -77,7 +79,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 linkpulse/
 ├── server/            Express API + redirect service
-│   ├── db/schema.sql  Database schema (idempotent)
+│   ├── migrations/    Database migrations (node-pg-migrate, SQL)
 │   ├── src/
 │   │   ├── routes/    auth, links (incl. bulk import), folders, tags, domains, stats, redirect
 │   │   ├── services/  slug, slug cache, URL validation, link field validation, CSV import, custom domain DNS/lookup, click parsing/logging, rate limiting

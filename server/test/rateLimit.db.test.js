@@ -1,4 +1,4 @@
-// Needs a database with db/schema.sql applied. Skipped unless DATABASE_URL is set to a real one:
+// Needs a database with migrations applied. Skipped unless DATABASE_URL is set to a real one:
 //   DATABASE_URL=postgres://... node --test test/rateLimit.db.test.js
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';

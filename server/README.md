@@ -7,8 +7,7 @@ Express API and redirect service. See the [root README](../README.md) for the ov
 ```bash
 npm install
 cp .env.example .env                    # set JWT_SECRET and DATABASE_URL (Supabase pooler string)
-# apply db/schema.sql once: paste it into the Supabase SQL Editor, or run
-# psql "$DATABASE_URL" -f db/schema.sql  # idempotent; re-run after upgrades
+npm run migrate                         # apply pending database migrations (also after every upgrade)
 npm run dev                             # watch mode, port 4000
 npm start                               # production
 npm test                                # unit tests (node:test, no database needed)
@@ -33,7 +32,8 @@ The server project uses `server/vercel.json`; do not use the repository-root Ver
 | `src/routes/redirect.js` | Public `GET/POST /:slug`, password and click-limit handling, QR source tag (must stay last) |
 | `src/services/` | `slug`, `slugCache`, `validateUrl`, `linkFields` (shared validation), `routing` (device/country rules: validation and matching), `csv`, `bulkImport`, `domainDns` (host validation, TXT/CNAME checks), `domainLookup` (Host → domain, cached), `clickParser`, `clickLogger`, `referrerLabels`, `rateLimit` |
 | `test/` | Unit tests, run with `npm test` |
-| `db/schema.sql` | Schema |
+| `migrations/` | Database migrations ([node-pg-migrate](https://salsita.github.io/node-pg-migrate/), plain SQL), applied in filename order |
+| `scripts/migrate.js` | Migration runner (`npm run migrate`, `migrate:down`, `migrate:create`) |
 
 ## Quick manual test
 

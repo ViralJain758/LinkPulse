@@ -9,7 +9,7 @@
   "bugs": {
     "url": "https://github.com/ViralJain758/LinkPulse/issues"
   },
-  "homepage": "https://github.com/ViralJain758/LinkPulse#readme",
+  "homepage": "https://linkpulse-vj.vercel.app",
   "version": "0.3.0",
   "type": "module",
   "scripts": {

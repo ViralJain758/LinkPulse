@@ -10,7 +10,7 @@ The database is Supabase Postgres, used as plain Postgres through `pg` and the c
 
 One Express process serves the JSON API under `/api`, a health check, and the public redirect on `/:slug`. The redirect router is registered **last** because it matches any single path segment; reserved slugs (`api`, `login`, `health`, ...) cannot be claimed.
 
-## Data model (`server/db/schema.sql`)
+## Data model (`server/migrations/`)
 
 - `users(id, email, password_hash)`
 - `links(id, user_id, slug UNIQUE, target_url, password_hash, max_clicks, used_clicks, expires_at, is_active, folder_id, tags TEXT[], created_at)`

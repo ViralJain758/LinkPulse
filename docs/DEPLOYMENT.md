@@ -32,9 +32,9 @@
 
 Node 20.6+ is required (`--env-file`).
 
-**Upgrading to shared rate limits (v9).** Run `server/db/schema.sql` (adds the `rate_limits` table) before or with the new server: without it, login, registration, link creation and the password page fail with a database error. Counters are not carried over, so every limit starts fresh. Expired rows are purged every 10 minutes.
+**Upgrading to shared rate limits (v9).** Run `npm run migrate` (adds the `rate_limits` table) before or with the new server: without it, login, registration, link creation and the password page fail with a database error. Counters are not carried over, so every limit starts fresh. Expired rows are purged every 10 minutes.
 
-**Upgrading to the session-based auth (v8).** Run `server/db/schema.sql` together with the new server. **Everyone is signed out once**: old 7-day tokens carry no session and are refused, which is how they become revocable. Without SMTP, reset and confirmation links are printed to the server console (never in `NODE_ENV=production`), so set up SMTP before relying on password reset. To turn on `REQUIRE_EMAIL_VERIFICATION` without locking out existing users, mark them confirmed first: `UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL;`.
+**Upgrading to the session-based auth (v8).** Run `npm run migrate` together with the new server. **Everyone is signed out once**: old 7-day tokens carry no session and are refused, which is how they become revocable. Without SMTP, reset and confirmation links are printed to the server console (never in `NODE_ENV=production`), so set up SMTP before relying on password reset. To turn on `REQUIRE_EMAIL_VERIFICATION` without locking out existing users, mark them confirmed first: `UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL;`.
 
 ## Database
 
@@ -43,24 +43,42 @@ LinkPulse's database is [Supabase](https://supabase.com) Postgres. The server ta
 **Set up (new project, no data to migrate):**
 
 1. Create a Supabase project and note the database password.
-2. Open **SQL Editor**, paste `server/db/schema.sql` and run it. Or from a shell: `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f server/db/schema.sql` (use the Session pooler or Direct string for this, see below).
-3. Click **Connect** in the dashboard, copy the **Transaction pooler** string into `DATABASE_URL`, and put the password in it (URL-encode special characters such as `@`, `#` or `/`).
+2. Click **Connect** in the dashboard and copy the **Session pooler** string (or Direct, see below) into `server/.env` as `DATABASE_URL`, with the password in it (URL-encode special characters such as `@`, `#` or `/`).
+3. Create the tables: `cd server && npm ci && npm run migrate`.
+4. For the running server, switch `DATABASE_URL` to the **Transaction pooler** string. Keep the Session/Direct string for migrations in `MIGRATE_DATABASE_URL` (the migration runner prefers it), so one `.env` serves both.
 
 **Which connection string:**
 
 | String | Port | Use it for |
 |---|---|---|
 | Transaction pooler | 6543 on `...pooler.supabase.com` | The running server. Connections are shared between clients, which suits many instances or a serverless host. LinkPulse uses no transactions across queries, no named prepared statements and no session state, so it works in this mode |
-| Session pooler | 5432 on `...pooler.supabase.com` | `psql`, `pg_dump` and one-off scripts from an IPv4-only network |
+| Session pooler | 5432 on `...pooler.supabase.com` | **Migrations** (they need a session-level lock and transactions), `psql`, `pg_dump` and one-off scripts from an IPv4-only network |
 | Direct | 5432 on `db.[ref].supabase.co` | Same, from an IPv6-capable network (IPv4 needs Supabase's paid add-on) |
 
 **TLS.** Supabase only accepts encrypted connections. With `DATABASE_SSL=auto` the server turns TLS on for `*.supabase.co` and `*.supabase.com` hosts and leaves it off for others, such as the local docker database. That encrypts the connection but does not check the server's certificate. To check it, download the CA certificate from the dashboard (Database settings) and set `DATABASE_SSL=verify` and `DATABASE_SSL_CA=/path/to/certificate`.
 
-**Row Level Security.** Supabase exposes every table in the `public` schema through its REST API to holders of the project's public `anon` key. `schema.sql` enables Row Level Security on every table with no policies, so that API returns nothing. The server is not affected because it connects as the table owner (`postgres`), which bypasses RLS. Connect with the `postgres` user from the dashboard's strings; a role without `BYPASSRLS` would see empty tables. If you do not use the REST API at all you can also turn it off in the project's API settings.
+**Row Level Security.** Supabase exposes every table in the `public` schema through its REST API to holders of the project's public `anon` key. The baseline migration enables Row Level Security on every table with no policies, so that API returns nothing. The server is not affected because it connects as the table owner (`postgres`), which bypasses RLS. Connect with the `postgres` user from the dashboard's strings; a role without `BYPASSRLS` would see empty tables. If you do not use the REST API at all you can also turn it off in the project's API settings.
 
-**Offline development.** `docker compose up -d db` starts a plain local Postgres with the schema applied; point `DATABASE_URL` at `postgres://postgres:postgres@localhost:5432/linkpulse` (TLS stays off there).
+**Offline development.** `docker compose up -d db` starts a plain local Postgres; point `DATABASE_URL` at `postgres://postgres:postgres@localhost:5432/linkpulse` (TLS stays off there) and run `cd server && npm run migrate`.
 
-The script is idempotent and is also how you upgrade (v4 replaces `links.one_time`/`used_at` with `max_clicks`/`used_clicks`, migrating existing one-time links, and adds `clicks.source`; v6 adds the `domains` table and `links.domain_id`, and makes slugs unique per domain instead of globally (existing links stay on the default domain); v5 adds the `folders` table and `links.folder_id`/`links.tags`, with existing links left unfiled and untagged). Run it after pulling new versions, **before or together with** starting the new server: the old server does not know the new columns, and the new one does not know the old ones.
+## Database migrations
+
+The schema is managed with [node-pg-migrate](https://salsita.github.io/node-pg-migrate/). Migrations are plain SQL files in `server/migrations/`, applied in filename order; the ones already applied are recorded in the `pgmigrations` table.
+
+```bash
+cd server
+npm run migrate                        # apply everything pending
+npm run migrate:down                   # roll back the last migration (`-- all` for every one)
+npm run migrate:create -- add-city     # new empty migration with Up/Down sections
+```
+
+The runner uses `MIGRATE_DATABASE_URL` if set, otherwise `DATABASE_URL`, with the same TLS rules as the server. On Supabase use the Session pooler or Direct string, not the Transaction pooler.
+
+**Upgrading.** Run `npm run migrate` after pulling a new version, **before or together with** starting the new server: the old server does not know new columns, and the new one does not know dropped ones. Each migration runs in a transaction, so a failure leaves the database as it was.
+
+**Databases created from the old `schema.sql`.** The first migration (`..._baseline`) is the whole v10 schema written with `IF NOT EXISTS` guards, including the old one-time-link conversion. On an existing database it changes nothing and is simply recorded as applied, so there is nothing to do by hand, even if that database predates v4, v5 or v6. `db/schema.sql` no longer exists.
+
+**Writing a migration.** Create one with `migrate:create`, then fill in `-- Up Migration` and `-- Down Migration`. Unlike the baseline, new migrations are ordinary one-shot SQL: they can `DROP` and `RENAME` columns and backfill data (`UPDATE ...`) without guards. Never edit a migration that has been merged or deployed; add another. For a rename that the running server depends on, ship it in steps (add new column and backfill, deploy code, drop the old column later).
 
 ## Production checklist
 
