@@ -25,6 +25,7 @@ import {
   parseWebhookUrl,
   readLimit,
 } from '../services/linkFields.js';
+import { consume as consumeRate } from '../services/rateLimit.js';
 import { MAX_BULK_ROWS, parseBulkCsv, splitTags, validateBulkRow } from '../services/bulkImport.js';
 
 const router = Router();
@@ -62,6 +63,24 @@ const RETURNING_LINK = `RETURNING links.*,
   (SELECT d.host FROM domains d WHERE d.id = links.domain_id) AS domain_host`;
 
 const MAX_SLUG_ATTEMPTS = 5;
+
+// Per-user cap on link creation (shared across instances). One counter covers single creates and CSV
+// imports, which spend one unit per row. Returns true when the request may go ahead; otherwise it has
+// already sent the 429. Disabled when the limit is 0.
+async function allowCreation(req, res, count = 1) {
+  const max = config.rateLimits.linkCreatePerUser;
+  if (max <= 0) return true;
+  const { allowed, retryAfterSec } = await consumeRate(`links|${req.user.id}`, max, 60 * 60 * 1000, count);
+  if (allowed) return true;
+  res.set('Retry-After', String(retryAfterSec));
+  res.status(429).json({
+    error:
+      count > max
+        ? `This import has ${count} rows, more than the ${max} links you can create per hour`
+        : `You have reached the limit of ${max} new links per hour. Try again later.`,
+  });
+  return false;
+}
 
 // True when the folder exists and belongs to the user
 async function folderBelongsTo(userId, folderId) {
@@ -141,6 +160,8 @@ async function insertLink(userId, f) {
 // domainId puts the link on one of your verified custom domains; omit it for the service's own domain.
 router.post('/', async (req, res, next) => {
   try {
+    // First, so a flood is refused before any validation, Safe Browsing lookup or bcrypt work
+    if (!(await allowCreation(req, res))) return;
     const target = validateTargetUrl(req.body?.url);
     if (!target.ok) return res.status(400).json({ error: target.error });
     if (await pointsAtCustomDomain(target.url)) return res.status(400).json({ error: SELF_LINK_ERROR });
@@ -244,6 +265,8 @@ router.post('/bulk', text({ type: ['text/csv', 'text/plain'], limit: '1mb' }), a
 
     const parsed = parseBulkCsv(req.body, { maxRows: MAX_BULK_ROWS });
     if (parsed.error) return res.status(400).json({ error: parsed.error });
+    // A dry run creates nothing, so only a real import spends the allowance
+    if (!dryRun && !(await allowCreation(req, res, parsed.rows.length))) return;
 
     // 1. Validate every row, and resolve the domain each one names (it must be yours and verified)
     const { rows: domainRows } = await query(

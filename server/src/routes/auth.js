@@ -13,8 +13,7 @@ import {
   issueAuthToken,
 } from '../services/authTokens.js';
 import { passwordChangedMail, resetMail, sendMail, verificationMail } from '../services/mailer.js';
-import { clearFailures, isBlocked, recordFailure } from '../services/rateLimit.js';
-import { allow } from '../services/throttle.js';
+import { clearFailures, consume, ipKey, isBlocked, rateLimit, recordFailure } from '../services/rateLimit.js';
 
 const router = Router();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,8 +47,25 @@ async function sendVerification(user) {
   await sendMail({ to: user.email, ...verificationMail(token) });
 }
 
+// Every attempt counts, valid or not, and the check runs before any hashing or mail. Each signup
+// sends an email to an address the caller picks, so this is what stops it being used to mail-bomb.
+const registerLimit = rateLimit({
+  name: 'register',
+  max: config.rateLimits.registerPerIp,
+  windowMs: HOUR,
+  message: 'Too many sign-ups from this network. Try again later.',
+});
+// Caps login attempts per IP across all emails (credential stuffing); the per-email failure lock below
+// still applies on top.
+const loginLimit = rateLimit({
+  name: 'login-ip',
+  max: config.rateLimits.loginPerIp,
+  windowMs: 15 * 60 * 1000,
+  message: 'Too many sign-in attempts. Try again later.',
+});
+
 // POST /api/auth/register  { email, password }
-router.post('/register', async (req, res, next) => {
+router.post('/register', registerLimit, async (req, res, next) => {
   try {
     const email = normEmail(req.body?.email);
     const password = req.body?.password;
@@ -78,13 +94,13 @@ router.post('/register', async (req, res, next) => {
 });
 
 // POST /api/auth/login  { email, password }
-router.post('/login', async (req, res, next) => {
+router.post('/login', loginLimit, async (req, res, next) => {
   try {
     const email = normEmail(req.body?.email);
     const password = String(req.body?.password ?? '');
 
-    const key = `login|${req.ip}|${email}`;
-    if (isBlocked(key)) {
+    const key = `login|${ipKey(req.ip)}|${email}`;
+    if (await isBlocked(key)) {
       res.set('Retry-After', '900');
       return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
     }
@@ -97,10 +113,10 @@ router.post('/login', async (req, res, next) => {
     // Same error for "no such user" and "wrong password" so emails can't be probed
     const valid = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH);
     if (!user || !valid) {
-      recordFailure(key);
+      await recordFailure(key);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
-    clearFailures(key);
+    await clearFailures(key);
 
     if (config.requireEmailVerification && !user.email_verified_at) {
       return res.status(403).json({ error: 'Confirm your email address to sign in', code: 'email_not_verified' });
@@ -174,7 +190,7 @@ router.post('/logout-all', requireAuth, async (req, res, next) => {
 router.post('/change-password', requireAuth, async (req, res, next) => {
   try {
     const key = `chpw|${req.user.id}`;
-    if (isBlocked(key)) {
+    if (await isBlocked(key)) {
       res.set('Retry-After', '900');
       return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
     }
@@ -184,11 +200,11 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
     const { rows } = await query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
     const current = String(req.body?.currentPassword ?? '');
     if (!rows[0] || !(await bcrypt.compare(current, rows[0].password_hash))) {
-      recordFailure(key);
+      await recordFailure(key);
       // Not 401: the client treats a 401 as "your session ended"
       return res.status(400).json({ error: 'Current password is wrong', code: 'wrong_password' });
     }
-    clearFailures(key);
+    await clearFailures(key);
 
     await query('UPDATE users SET password_hash = $1 WHERE id = $2', [await bcrypt.hash(req.body.newPassword, 10), req.user.id]);
     await revokeAllSessions(req.user.id, req.user.sid);
@@ -205,11 +221,11 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
 router.post('/forgot-password', async (req, res, next) => {
   try {
     const email = normEmail(req.body?.email);
-    if (!allow(`forgot-ip|${req.ip}`, 20, HOUR)) {
+    if (!(await consume(`forgot-ip|${ipKey(req.ip)}`, 20, HOUR)).allowed) {
       return res.status(429).json({ error: 'Too many requests. Try again later.' });
     }
     const reply = () => res.status(202).json({ ok: true, message: 'If that email has an account, a reset link is on its way.' });
-    if (!EMAIL_REGEX.test(email) || !allow(`forgot|${email}`, 3, HOUR)) return reply();
+    if (!EMAIL_REGEX.test(email) || !(await consume(`forgot|${email}`, 3, HOUR)).allowed) return reply();
 
     const { rows } = await query('SELECT id, email FROM users WHERE email = $1', [email]);
     const user = rows[0];
@@ -268,11 +284,11 @@ router.post('/verify-email', async (req, res, next) => {
 router.post('/resend-verification', async (req, res, next) => {
   try {
     const email = normEmail(req.body?.email);
-    if (!allow(`resend-ip|${req.ip}`, 20, HOUR)) {
+    if (!(await consume(`resend-ip|${ipKey(req.ip)}`, 20, HOUR)).allowed) {
       return res.status(429).json({ error: 'Too many requests. Try again later.' });
     }
     const reply = () => res.status(202).json({ ok: true, message: 'If that account needs confirming, a new link is on its way.' });
-    if (!EMAIL_REGEX.test(email) || !allow(`resend|${email}`, 3, HOUR)) return reply();
+    if (!EMAIL_REGEX.test(email) || !(await consume(`resend|${email}`, 3, HOUR)).allowed) return reply();
 
     const { rows } = await query('SELECT id, email, email_verified_at FROM users WHERE email = $1', [email]);
     const user = rows[0];

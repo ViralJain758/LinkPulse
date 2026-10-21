@@ -10,6 +10,7 @@ import domainRoutes from './routes/domains.js';
 import redirectRoutes from './routes/redirect.js';
 import { pool } from './db.js';
 import { startClickLogger, stopClickLogger } from './services/clickLogger.js';
+import { startRateLimitPurge, stopRateLimitPurge } from './services/rateLimit.js';
 
 const app = express();
 app.set('trust proxy', config.trustProxy);
@@ -41,6 +42,7 @@ app.use((err, _req, res, _next) => {
 });
 
 startClickLogger();
+startRateLimitPurge();
 
 const server = app.listen(config.port, () => {
   console.log(`Linkpulse server running on ${config.baseUrl}`);
@@ -52,6 +54,7 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   server.close();
+  stopRateLimitPurge();
   await stopClickLogger().catch(console.error);
   await pool.end().catch(() => {});
   process.exit(0);

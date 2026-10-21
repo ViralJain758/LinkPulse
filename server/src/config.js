@@ -55,6 +55,12 @@ export const config = {
   requireEmailVerification: (process.env.REQUIRE_EMAIL_VERIFICATION || 'false').toLowerCase() === 'true',
   // Sender for verification and password-reset emails. Defaults to the notification sender.
   authFromEmail: process.env.AUTH_FROM_EMAIL || process.env.NOTIFICATION_FROM_EMAIL || process.env.SMTP_USER || '',
+  // Rate limits (shared across instances through Postgres, see services/rateLimit.js). Each is a count per window.
+  rateLimits: {
+    registerPerIp: parseCount(process.env.RATE_LIMIT_REGISTER_PER_IP, 5), // accounts created per IP per hour
+    loginPerIp: parseCount(process.env.RATE_LIMIT_LOGIN_PER_IP, 30), // login attempts per IP per 15 minutes
+    linkCreatePerUser: parseCount(process.env.RATE_LIMIT_LINKS_PER_USER, 500), // links per user per hour (CSV rows count one each)
+  },
   customDomainTarget: (process.env.CUSTOM_DOMAIN_TARGET || '').trim().toLowerCase(),
 };
 

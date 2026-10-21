@@ -13,10 +13,10 @@ Session responses look like `{ "user": { "id", "email", "emailVerified" }, "acce
 A `401` on an authenticated call has a `code`: `token_expired` (call `/refresh` and repeat the request) or `session_ended` (sign in again). `403` with `email_not_verified` means the server requires a confirmed email.
 
 ### `POST /api/auth/register`
-Body: `{ "email", "password" }` (8 characters to 72 bytes). `201` → a session. If the server has `REQUIRE_EMAIL_VERIFICATION=true`: `201` → `{ "user", "verificationRequired": true }` and no session until the emailed link is used. `409` if the email exists. A confirmation email is sent either way.
+Body: `{ "email", "password" }` (8 characters to 72 bytes). `201` → a session. If the server has `REQUIRE_EMAIL_VERIFICATION=true`: `201` → `{ "user", "verificationRequired": true }` and no session until the emailed link is used. `409` if the email exists. `429` (with `Retry-After`) after 5 sign-ups from one IP within an hour. A confirmation email is sent either way.
 
 ### `POST /api/auth/login`
-Body: `{ "email", "password" }`. `200` → a session. `401` on bad credentials, `403 email_not_verified` when verification is required, `429` after 5 failed attempts for the same IP and email within 15 minutes.
+Body: `{ "email", "password" }`. `200` → a session. `401` on bad credentials, `403 email_not_verified` when verification is required, `429` after 5 failed attempts for the same IP and email within 15 minutes, or after 30 attempts from one IP within 15 minutes.
 
 ### `POST /api/auth/refresh`
 Body: `{ "refreshToken" }`. `200` → a new session payload; **the old refresh token stops working**, store the new one. `401 session_ended` if the token is unknown, expired or its session was revoked. Presenting an already-used refresh token more than 10 seconds after it was replaced is treated as theft and revokes the session. Within those 10 seconds the answer is `401 refresh_race` (two tabs refreshing together): retry with the token the other one saved.
@@ -73,6 +73,8 @@ Link object:
 `clickCount` (recorded analytics clicks) is only present in the list endpoint. `usedClicks` counts visits that consumed the click limit; it is `0` for unlimited links and can be lower than `clickCount`, because visits are only counted against the limit when a limit is set. The password hash is never returned. `tags` is always an array; `folderId` and `folderName` are `null` for an unfiled link. `domainId` and `domain` (the host name) are `null` for a link on the default domain; for a link on a custom domain, `shortUrl` is `https://<domain>/<slug>` (with the scheme of `BASE_URL`). `routes` is always an array (empty when the link has no routing rules); see [Device and country routing](#device-and-country-routing).
 
 ### `POST /api/links`
+Creation is limited per user (500 per hour by default): over the limit the response is `429` with `Retry-After`. Every call counts, including ones that fail validation.
+
 | Field | Type | Notes |
 |---|---|---|
 | `url` | string, required | `http`/`https`, max 2048 chars, not this service's own host |
@@ -102,6 +104,8 @@ Your links, newest first, with `clickCount`. Optional filters, combined with AND
 `400` for a malformed `folder`, or a `tag`/`q` given more than once.
 
 ### `POST /api/links/bulk`
+A real import (not `dryRun=true`) spends one unit of the same hourly creation limit per row. `429` with `Retry-After` when it would exceed it; nothing is created and nothing is spent.
+
 Creates many links from a CSV. Send the CSV as the request body with `Content-Type: text/csv` (max 1 MB and 500 data rows).
 
 | Query | Meaning |

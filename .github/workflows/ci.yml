@@ -18,3 +18,28 @@ jobs:
       - name: Client build
         working-directory: client
         run: npm ci && npm run build
+  database:
+    # The schema is meant to be re-run on existing databases, and the auth queries depend on it
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: linkpulse }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/linkpulse
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply schema, then apply it again (must be re-runnable)
+        working-directory: server
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
+      - name: Rate limiter tests against Postgres
+        working-directory: server
+        run: npm ci && node --test test/rateLimit.db.test.js
+      - name: Session and token SQL smoke test
+        working-directory: server
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f test/sql/auth_smoke.sql

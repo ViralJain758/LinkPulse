@@ -11,7 +11,7 @@ Follow the Quick start in the [README](README.md). The code lives at https://git
 1. Fork and create a branch: `git checkout -b feature/short-description`
 2. Make focused changes; keep unrelated refactors out of the same PR
 3. Check the client builds: `cd client && npm run build`
-4. Run the unit tests with `cd server && npm test`, and exercise the server by hand (see the curl examples in [docs/API.md](docs/API.md)); route and database tests are a welcome contribution
+4. Run the unit tests with `cd server && npm test` (CI also applies `server/db/schema.sql` twice to a throwaway Postgres and runs `server/test/sql/auth_smoke.sql`; run those with `psql` if you change the schema), and exercise the server by hand (see the curl examples in [docs/API.md](docs/API.md)); route and database tests are a welcome contribution
 5. Open a pull request describing what changed and why
 
 ## Conventions

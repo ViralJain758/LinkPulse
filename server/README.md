@@ -55,5 +55,5 @@ curl "localhost:4000/api/stats/overview?range=7d" -H "Authorization: Bearer <TOK
 
 - Bots are detected by a user-agent regex, not a maintained list
 - The slug cache is per process: with several instances, an edit or delete reaches the others only after `SLUG_CACHE_TTL_SECONDS` (60 by default)
-- The password rate limiter is per process
+- Rate limits are fixed windows kept in Postgres: a burst across a window boundary can briefly reach twice the limit
 - Hourly buckets in a DST-change zone can merge or skip one hour on the transition day

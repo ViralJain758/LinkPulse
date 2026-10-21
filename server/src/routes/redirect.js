@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { query } from '../db.js';
 import { logClick } from '../services/clickLogger.js';
 import { parseUserAgent } from '../services/clickParser.js';
-import { isBlocked, recordFailure, clearFailures } from '../services/rateLimit.js';
+import { isBlocked, recordFailure, clearFailures, ipKey } from '../services/rateLimit.js';
 import { getCached, setCached, currentEpoch, slugKey } from '../services/slugCache.js';
 import { resolveDomainId } from '../services/domainLookup.js';
 import { resolveDestination } from '../services/routing.js';
@@ -158,7 +158,7 @@ function follow(link, req, res, { post }) {
   if (req.method === 'GET' || req.method === 'POST') logClick(link.id, req);
 }
 
-const rateKey = (req, domainId, slug) => `${req.ip}|${domainId ?? ''}:${slug}`;
+const rateKey = (req, domainId, slug) => `gate|${ipKey(req.ip)}|${domainId ?? ''}:${slug}`;
 
 // GET|HEAD /:slug  (public, must be registered AFTER all other routes)
 router.get('/:slug', async (req, res, next) => {
@@ -195,17 +195,17 @@ router.post('/:slug', urlencoded({ extended: false, limit: '2kb' }), async (req,
     if (!link.password_hash) return res.redirect(303, `/${encodeURIComponent(slug)}${source ? `?s=${source}` : ''}`);
 
     const key = rateKey(req, domainId, slug);
-    if (isBlocked(key)) {
+    if (await isBlocked(key)) {
       res.set('Retry-After', '900');
       return passwordPage(res, slug, 'Too many wrong attempts. Try again in 15 minutes.', 429, source);
     }
 
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     if (!password || !(await bcrypt.compare(password, link.password_hash))) {
-      recordFailure(key);
+      await recordFailure(key);
       return passwordPage(res, slug, 'Wrong password. Try again.', 401, source);
     }
-    clearFailures(key);
+    await clearFailures(key);
 
     if (limited(link) && !(await consume(link))) return usedUp(res, link);
     follow(link, req, res, { post: true });

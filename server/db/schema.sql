@@ -138,3 +138,14 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id, kind);
+
+-- v9: shared rate limiting. One row per limiter key (e.g. "register|203.0.113.7"), so every server
+-- instance sees the same counts. Windows are fixed; expired rows are overwritten on the next hit and
+-- purged periodically. UNLOGGED: losing the counters in a crash only resets the limits, and skipping
+-- the WAL makes the per-request writes cheaper.
+CREATE UNLOGGED TABLE IF NOT EXISTS rate_limits (
+  key      TEXT PRIMARY KEY,
+  count    INTEGER NOT NULL,
+  reset_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at);

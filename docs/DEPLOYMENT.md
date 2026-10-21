@@ -20,9 +20,14 @@
 | `REFRESH_TOKEN_TTL_DAYS` | no | `30` | A session ends after this many days without a refresh (each refresh extends it) |
 | `REQUIRE_EMAIL_VERIFICATION` | no | `false` | `true`: sign-in is refused until the emailed link is opened. The server refuses to start without SMTP settings. Existing accounts are unverified, see the note below |
 | `AUTH_FROM_EMAIL` | no | `NOTIFICATION_FROM_EMAIL` | Sender of verification and password-reset emails (uses the `SMTP_*` settings). Links point at `CLIENT_ORIGIN`, which must be the dashboard's public URL |
+| `RATE_LIMIT_REGISTER_PER_IP` | no | `5` | Accounts one IP can create per hour. Each signup sends an email, so keep it low. `0` disables |
+| `RATE_LIMIT_LOGIN_PER_IP` | no | `30` | Login attempts per IP per 15 minutes, on top of the 5-failures-per-IP-and-email lock. `0` disables |
+| `RATE_LIMIT_LINKS_PER_USER` | no | `500` | Links one user can create per hour; a CSV import counts one per row, so keep it at or above the import size you want to allow (max 500 rows). `0` disables |
 | `CUSTOM_DOMAIN_TARGET` | no | host of `BASE_URL` | What users are told to point their custom domain at: a host name for a CNAME, or an IP address. Set it when the public host differs from `BASE_URL`, for example a dedicated `cname.sho.rt` |
 
 Node 20.6+ is required (`--env-file`).
+
+**Upgrading to shared rate limits (v9).** Run `server/db/schema.sql` (adds the `rate_limits` table) before or with the new server: without it, login, registration, link creation and the password page fail with a database error. Counters are not carried over, so every limit starts fresh. Expired rows are purged every 10 minutes.
 
 **Upgrading to the session-based auth (v8).** Run `server/db/schema.sql` together with the new server. **Everyone is signed out once**: old 7-day tokens carry no session and are refused, which is how they become revocable. Without SMTP, reset and confirmation links are printed to the server console (never in `NODE_ENV=production`), so set up SMTP before relying on password reset. To turn on `REQUIRE_EMAIL_VERIFICATION` without locking out existing users, mark them confirmed first: `UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL;`.
 
@@ -40,9 +45,9 @@ The script is idempotent and is also how you upgrade (v4 replaces `links.one_tim
 2. **Serve it** from the same origin as the API (nginx/Caddy serving `dist/` and proxying `/api` and short-link paths to Node), or host it separately and set `CLIENT_ORIGIN`; in that case change `api.js` to use the API's full URL.
 3. **Run the server:** `cd server && npm ci --omit=dev && npm start`. Keep it alive with systemd, pm2 or a container.
 4. **HTTPS** via your reverse proxy or platform.
-5. **`TRUST_PROXY`**: set it to match the proxy setup. Without it every visitor has the proxy's IP, unique visitors collapse to 1 and the password rate limiter blocks everyone together.
+5. **`TRUST_PROXY`**: set it to match the proxy setup. Without it every visitor has the proxy's IP, unique visitors collapse to 1 and the rate limiters (which key on the client IP) treat everyone as one client and block them together.
 6. **Countries:** the server reads a CDN header when there is one (`CF-IPCountry`, `X-Vercel-IP-Country`, `CloudFront-Viewer-Country`) and otherwise looks the visitor's IP up in a bundled offline country database (`geoip-country`; the IP is not stored). Behind a proxy, set `TRUST_PROXY=1` so the real visitor IP is used; without it every visit shows the proxy's address and the country is Unknown. Clicks recorded before this change keep an empty country (their IPs were never stored). The database is updated by upgrading the package.
-7. **Several instances:** the slug cache and the password limiter are per process. After a `PATCH` or `DELETE`, other instances can serve the old link for up to `SLUG_CACHE_TTL_SECONDS`. Lower it, or set it to `0`, if links must change everywhere at once.
+7. **Several instances:** the slug cache is per process (rate limits are not: they live in Postgres and are shared). After a `PATCH` or `DELETE`, other instances can serve the old link for up to `SLUG_CACHE_TTL_SECONDS`. Lower it, or set it to `0`, if links must change everywhere at once.
 8. **Manual database edits:** the cache only learns about changes made through the API. After editing `links` rows with SQL, wait for the TTL or restart the server.
 9. **Short domain routing:** the proxy must send `/:slug` and `POST /:slug` to Node. If the dashboard shares the domain, see the example below.
 

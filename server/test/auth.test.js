@@ -9,7 +9,7 @@ process.env.CLIENT_ORIGIN = 'https://app.example.com/';
 
 const { newToken, hashToken } = await import('../src/services/tokens.js');
 const { passwordError } = await import('../src/services/passwords.js');
-const { allow, resetThrottle } = await import('../src/services/throttle.js');
+const { ipKey } = await import('../src/services/rateLimit.js');
 const { classifyStaleRefresh, REFRESH_GRACE_MS } = await import('../src/services/refreshPolicy.js');
 const { verificationMail, resetMail } = await import('../src/services/mailer.js');
 
@@ -35,11 +35,15 @@ test('password rules: 8+ characters and at most 72 bytes (bcrypt truncates beyon
   assert.match(passwordError('€'.repeat(25)), /at most 72/);
 });
 
-test('throttle allows N per window, then refuses until the window passes', () => {
-  resetThrottle();
-  assert.deepEqual([1, 2, 3, 4].map(() => allow('k', 3, 1000, 0)), [true, true, true, false]);
-  assert.equal(allow('other', 3, 1000, 0), true); // keys are independent
-  assert.equal(allow('k', 3, 1000, 1001), true); // new window
+test('rate limit keys: IPv4 as is, IPv6 collapsed to its /64, mapped IPv4 unwrapped', () => {
+  assert.equal(ipKey('203.0.113.7'), '203.0.113.7');
+  assert.equal(ipKey('::ffff:203.0.113.7'), '203.0.113.7');
+  // Two addresses inside one /64 share a key, so rotating the host part does not dodge a limit
+  assert.equal(ipKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), ipKey('2001:db8:1:2::1'));
+  assert.equal(ipKey('2001:db8:1:2::1'), '2001:db8:1:2::/64');
+  assert.notEqual(ipKey('2001:db8:1:3::1'), ipKey('2001:db8:1:2::1'));
+  assert.equal(ipKey('::1'), '0:0:0:0::/64');
+  assert.equal(ipKey(undefined), 'unknown');
 });
 
 test('a reused refresh token inside the grace window is a race, after it theft', () => {
