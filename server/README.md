@@ -21,10 +21,12 @@ Requires Node 20.6+ (uses `--env-file`). Configuration is documented in [docs/DE
 |---|---|
 | `src/index.js` | App wiring, error handler, graceful shutdown (flushes buffered clicks) |
 | `src/routes/auth.js` | Register / login |
-| `src/routes/links.js` | Link CRUD (passwords, click limits, expiry) |
+| `src/routes/links.js` | Link CRUD (passwords, click limits, expiry, tags, folder), list filters, `POST /bulk` CSV import |
+| `src/routes/folders.js` | Folder CRUD |
+| `src/routes/tags.js` | Tag list with counts |
 | `src/routes/stats.js` | Analytics queries |
 | `src/routes/redirect.js` | Public `GET/POST /:slug`, password and click-limit handling, QR source tag (must stay last) |
-| `src/services/` | `slug`, `slugCache`, `validateUrl`, `clickParser`, `clickLogger`, `referrerLabels`, `rateLimit` |
+| `src/services/` | `slug`, `slugCache`, `validateUrl`, `linkFields` (shared validation), `csv`, `bulkImport`, `clickParser`, `clickLogger`, `referrerLabels`, `rateLimit` |
 | `test/` | Unit tests, run with `npm test` |
 | `db/schema.sql` | Schema |
 
@@ -42,6 +44,9 @@ curl "localhost:4000/api/stats/overview?range=7d" -H "Authorization: Bearer <TOK
 - Clicks are batched every second; a hard crash can lose about a second of clicks.
 - The redirect caches link lookups in memory (`SLUG_CACHE_TTL_SECONDS`, default 60; `0` turns it off). Editing or deleting a link through the API takes effect immediately on that server. Changes made any other way, such as SQL run by hand, show up after the TTL or a restart. Click-limited links and unknown slugs are never cached. Details in [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#slug-cache).
 - Country needs a CDN header (Cloudflare, Vercel, CloudFront); otherwise it is empty.
+
+- Bulk import creates links one at a time and keeps going past bad rows; it is capped at 500 rows and 1 MB per request. Rows with passwords are slower (bcrypt).
+- Folders and tags do not affect redirects, so they take effect immediately everywhere.
 
 ## Known limits
 

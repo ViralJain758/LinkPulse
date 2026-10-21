@@ -4,7 +4,7 @@ Thanks for helping improve LinkPulse.
 
 ## Setup
 
-Follow the Quick start in the [README](README.md). You need Node 20.6+ and PostgreSQL.
+Follow the Quick start in the [README](README.md). The code lives at https://github.com/ViralJain758/LinkPulse; clone your fork (`git clone https://github.com/<you>/LinkPulse.git`) and add the original as `upstream`. You need Node 20.6+ and PostgreSQL.
 
 ## Workflow
 
@@ -17,14 +17,15 @@ Follow the Quick start in the [README](README.md). You need Node 20.6+ and Postg
 ## Conventions
 
 - ES modules everywhere; no TypeScript or transpile step on the server
-- Keep route handlers thin; put reusable logic in `server/src/services/`
+- Keep route handlers thin; put reusable logic in `server/src/services/`. Validation of link fields lives in `services/linkFields.js` and is shared by single creates, edits and the CSV import: add new link fields there so every entry point checks them the same way
 - All SQL is parameterized. Never interpolate request data into a query (the stats code interpolates only values from fixed whitelists)
 - Schema changes must be idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) and added to `server/db/schema.sql`
 - The redirect path must stay fast: no awaited writes before the response is sent
 - Anything that changes a link's slug, destination, active state, expiry, password or limit must call `invalidate(slug)` from `services/slugCache.js` after the write, or the redirect keeps serving the old row until the cache TTL ends. Never cache a link whose row changes on visits (click-limited links)
 - Add new environment variables to `server/.env.example` and `docs/DEPLOYMENT.md`
 - Update `docs/API.md` and `CHANGELOG.md` with user-visible changes
+- Changes to the CSV import columns need a matching update to the template in `client/src/ImportModal.jsx` and the example in the README
 
 ## Reporting bugs
 
-Open an issue with steps to reproduce, expected vs. actual behaviour, and your Node/Postgres versions. For security problems, see [SECURITY.md](SECURITY.md) instead.
+Open an issue at https://github.com/ViralJain758/LinkPulse/issues with steps to reproduce, expected vs. actual behaviour, and your Node/Postgres versions. For security problems, see [SECURITY.md](SECURITY.md) instead.

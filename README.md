@@ -1,12 +1,16 @@
 # LinkPulse
 
+[![CI](https://github.com/ViralJain758/LinkPulse/actions/workflows/ci.yml/badge.svg)](https://github.com/ViralJain758/LinkPulse/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A self-hosted URL shortener with built-in click analytics. Create short links, protect them with a password, limit them to a number of visits, share them as QR codes, and watch the clicks come in on a live dashboard.
 
 > Stack: Node.js (Express) · PostgreSQL · React (Vite) · Recharts
 
 ## Features
 
-- **Short links** with random or custom slugs, optional expiry, pause/resume, edit (destination, expiry, limit) and delete
+- **Short links** with random or custom slugs, optional expiry, pause/resume, edit (destination, expiry, limit, tags, folder) and delete
+- **Folders and tags** to keep many links organised: one folder per link, up to 10 tags, and a Links page you can filter by folder or tag and search by slug, URL or tag
+- **Bulk create from CSV**: import up to 500 links at once, with a preview that flags problem rows before anything is created, and a results file with every new short URL
 - **Password-protected links**: visitors must enter a password first (bcrypt-hashed, brute-force limited)
 - **Click limits**: "expire after N clicks" (1 = one-time link), safe against link-preview bots and simultaneous visitors
 - **QR codes** for every link, downloadable as PNG or SVG; scans are tracked as their own "QR code" source
@@ -20,7 +24,7 @@ A self-hosted URL shortener with built-in click analytics. Create short links, p
 Requirements: **Node.js 20.6+** and **PostgreSQL 13+** (or Docker for the database).
 
 ```bash
-git clone <your-repo-url> linkpulse && cd linkpulse
+git clone https://github.com/ViralJain758/LinkPulse.git && cd LinkPulse
 
 # 1. Database (either use your own Postgres, or:)
 docker compose up -d db          # Postgres on localhost:5432, schema applied automatically
@@ -40,6 +44,22 @@ npm run dev                      # http://localhost:5173
 
 Open http://localhost:5173, register an account, and create your first link.
 
+Upgrading from an earlier version? Re-run `psql "$DATABASE_URL" -f server/db/schema.sql` (it is idempotent) before starting the new server.
+
+## Organising links: folders, tags and CSV import
+
+- **Folders** are flat and per user; a link is in one folder or none. Create and rename them under **Manage folders**. Deleting a folder keeps its links (they become unfiled).
+- **Tags** are free-form labels (lowercase, up to 10 per link, 32 characters each). Click a tag chip to filter; the search box also matches tags.
+- **Import CSV** takes a file with a header row. Only `url` is required:
+
+  ```csv
+  url,slug,tags,folder,expires_at,password,max_clicks
+  https://example.com/spring-sale,spring-sale,launch|email,Campaigns,,,
+  https://example.com/docs,,docs,,2027-12-31T23:59:00Z,,
+  ```
+
+  Separate several tags with `|` (or `,` / `;` inside quotes). A folder that does not exist yet is created. The dialog checks the file first and lists problem rows (bad URL, taken slug, duplicate slug in the file...); only valid rows are created. Details and the HTTP endpoint are in [docs/API.md](docs/API.md#bulk-create-from-csv).
+
 Generate a strong `JWT_SECRET` with:
 
 ```bash
@@ -53,8 +73,8 @@ linkpulse/
 ├── server/            Express API + redirect service
 │   ├── db/schema.sql  Database schema (idempotent)
 │   ├── src/
-│   │   ├── routes/    auth, links, stats, redirect
-│   │   ├── services/  slug, slug cache, URL validation, click parsing/logging, rate limiting
+│   │   ├── routes/    auth, links (incl. bulk import), folders, tags, stats, redirect
+│   │   ├── services/  slug, slug cache, URL validation, link field validation, CSV import, click parsing/logging, rate limiting
 │   │   └── middleware/
 │   └── test/          Unit tests (`npm test`)
 ├── client/            React dashboard (Vite)
@@ -77,7 +97,11 @@ linkpulse/
 
 ## Roadmap
 
-Custom domains, webhooks, CSV export, a shared cache for multi-instance setups, broader test coverage (route and database tests). See [CHANGELOG.md](CHANGELOG.md) for what has shipped.
+Custom domains, webhooks, CSV export of links and stats, selecting several links to move or tag them at once, per-folder and per-tag analytics, a shared cache for multi-instance setups, broader test coverage (route and database tests). See [CHANGELOG.md](CHANGELOG.md) for what has shipped.
+
+## Contributing
+
+Issues and pull requests are welcome at [github.com/ViralJain758/LinkPulse](https://github.com/ViralJain758/LinkPulse). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

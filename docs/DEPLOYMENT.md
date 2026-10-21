@@ -22,7 +22,7 @@ Node 20.6+ is required (`--env-file`).
 psql "$DATABASE_URL" -f server/db/schema.sql
 ```
 
-The script is idempotent and is also how you upgrade (v4 replaces `links.one_time`/`used_at` with `max_clicks`/`used_clicks`, migrating existing one-time links, and adds `clicks.source`). Run it after pulling new versions, **before or together with** starting the new server: the old server does not know the new columns, and the new one does not know the old ones.
+The script is idempotent and is also how you upgrade (v4 replaces `links.one_time`/`used_at` with `max_clicks`/`used_clicks`, migrating existing one-time links, and adds `clicks.source`; v5 adds the `folders` table and `links.folder_id`/`links.tags`, with existing links left unfiled and untagged). Run it after pulling new versions, **before or together with** starting the new server: the old server does not know the new columns, and the new one does not know the old ones.
 
 ## Production checklist
 
@@ -35,6 +35,10 @@ The script is idempotent and is also how you upgrade (v4 replaces `links.one_tim
 7. **Several instances:** the slug cache and the password limiter are per process. After a `PATCH` or `DELETE`, other instances can serve the old link for up to `SLUG_CACHE_TTL_SECONDS`. Lower it, or set it to `0`, if links must change everywhere at once.
 8. **Manual database edits:** the cache only learns about changes made through the API. After editing `links` rows with SQL, wait for the TTL or restart the server.
 9. **Short domain routing:** the proxy must send `/:slug` and `POST /:slug` to Node. If the dashboard shares the domain, see the example below.
+
+## Request size limits
+
+`POST /api/links/bulk` accepts a CSV body of up to 1 MB (about 500 rows). If you proxy the API through nginx, the default `client_max_body_size` of 1 MB is just enough; raise it only if you also raise the limit in `routes/links.js`. A body over the limit gets `413` with a JSON error.
 
 ## Example nginx (single domain)
 

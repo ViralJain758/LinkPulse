@@ -11,10 +11,11 @@ One Express process serves the JSON API under `/api`, a health check, and the pu
 ## Data model (`server/db/schema.sql`)
 
 - `users(id, email, password_hash)`
-- `links(id, user_id, slug UNIQUE, target_url, password_hash, max_clicks, used_clicks, expires_at, is_active, created_at)`
+- `links(id, user_id, slug UNIQUE, target_url, password_hash, max_clicks, used_clicks, expires_at, is_active, folder_id, tags TEXT[], created_at)`
+- `folders(id, user_id, name, created_at)` with a unique index on `(user_id, lower(name))`
 - `clicks(id, link_id, clicked_at, referrer, device_type, browser, os, country, ip_hash, source)` indexed on `(link_id, clicked_at)`
 
-Deleting a user or link cascades to their links/clicks.
+Deleting a user or link cascades to their links/clicks. Deleting a folder sets `links.folder_id` to `NULL` (the links stay). `links.tags` is a Postgres array with a GIN index, so a tag filter is `tags @> ARRAY[...]`; there is no separate tags table, so a tag exists exactly as long as some link has it.
 
 ## Redirect flow
 
@@ -40,6 +41,21 @@ Deleting a user or link cascades to their links/clicks.
 
 When you add code that changes a link's slug, destination, active state, expiry, password or limit, call `invalidate(slug)` after the write. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
+## Folders, tags and filtering
+
+Folders and tags are organisation only: the redirect never reads them, so changing them does not need a slug-cache `invalidate` (the `PATCH` handler clears the entry anyway, which is harmless). Field validation (`services/linkFields.js`) is shared by the single-link routes and the bulk import. `GET /api/links` builds its `WHERE` clause from fixed SQL fragments with parameters for every value; `q` uses `position(needle in lower(column))` rather than `LIKE`, so `%` and `_` in a search need no escaping.
+
+## Bulk import
+
+`POST /api/links/bulk` takes the CSV as a `text/csv` body (Express `text()` parser, 1 MB limit). `services/csv.js` is a small RFC 4180 reader; `services/bulkImport.js` maps header names to fields and validates each row with the same functions as `POST /api/links`. The handler then:
+
+1. validates every row and flags a slug repeated inside the file (the first row wins);
+2. checks the remaining custom slugs against the database in one query;
+3. works out which folders are new and refuses the import if it would pass the per-user folder limit;
+4. with `dryRun=true`, stops and reports; otherwise creates the missing folders (`ON CONFLICT (user_id, lower(name)) DO NOTHING`, then re-reads them, so a concurrent request creating the same folder is fine) and inserts the links one by one.
+
+Rows are inserted sequentially and independently, not in one transaction: a failure on one row (a slug taken by a concurrent request, say) does not undo the others, and the response says which rows failed. The cap of 500 rows keeps the request short; rows with passwords are the slow part (bcrypt). New slugs need no cache invalidation, because unknown slugs are never cached.
+
 ## Click logging
 
 `clickLogger` buffers clicks and flushes every second (or at 500 rows) with one multi-row `INSERT`. If a batch fails (for example a link deleted mid-flight violates the foreign key), rows are retried individually so one bad row cannot drop the batch. The buffer is capped at 10,000 rows, and is flushed on `SIGTERM`/`SIGINT`. Trade-off: a hard crash can lose about a second of clicks.
@@ -56,7 +72,7 @@ Each click records the referrer **hostname** only, a `source` tag (`qr` when the
 
 ## Client
 
-Vite + React, no router: `App.jsx` switches between Overview, Links and Link detail. `api.js` wraps `fetch` with the stored JWT and signs the user out on any 401. `useFetch` loads data, refetches on dependency changes and polls every 30 seconds. QR codes are generated client-side (`qrcode` package).
+Vite + React, no router: `App.jsx` switches between Overview, Links and Link detail. The Links page filters through the API (`folder`, `tag`, `q`) and polls like the stats pages; the CSV import dialog first calls the bulk endpoint with `dryRun=true` to show what would happen, then repeats the call to create the links. `api.js` wraps `fetch` with the stored JWT and signs the user out on any 401. `useFetch` loads data, refetches on dependency changes and polls every 30 seconds. QR codes are generated client-side (`qrcode` package).
 
 ## Design decisions worth knowing
 

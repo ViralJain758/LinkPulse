@@ -40,6 +40,22 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_links_user ON links(user_id, created_at DESC);
 
+-- v5: organise many links. A link has at most one folder (flat, per user) and any number of tags.
+CREATE TABLE IF NOT EXISTS folders (
+  id         BIGSERIAL PRIMARY KEY,
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 50),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Folder names are unique per user, ignoring case ("Launch" and "launch" are the same folder)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_user_name ON folders(user_id, lower(name));
+
+-- Deleting a folder keeps its links; they just become unfiled
+ALTER TABLE links ADD COLUMN IF NOT EXISTS folder_id BIGINT REFERENCES folders(id) ON DELETE SET NULL;
+ALTER TABLE links ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS idx_links_folder ON links(user_id, folder_id);
+CREATE INDEX IF NOT EXISTS idx_links_tags ON links USING GIN (tags);
+
 -- Created now, used from v2 (click logging)
 CREATE TABLE IF NOT EXISTS clicks (
   id          BIGSERIAL PRIMARY KEY,

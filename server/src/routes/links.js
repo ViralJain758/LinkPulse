@@ -1,15 +1,23 @@
-import { Router } from 'express';
+import { Router, text } from 'express';
 import bcrypt from 'bcryptjs';
-import { query, isUniqueViolation } from '../db.js';
+import { query, isUniqueViolation, isForeignKeyViolation } from '../db.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validateTargetUrl } from '../services/validateUrl.js';
 import { invalidate } from '../services/slugCache.js';
+import { generateSlug } from '../services/slug.js';
 import {
-  generateSlug,
-  isReservedSlug,
-  SLUG_REGEX,
-} from '../services/slug.js';
+  MAX_FOLDERS_PER_USER,
+  normalizeTag,
+  parseExpiry,
+  parseFolderId,
+  parseFolderName,
+  parsePassword,
+  parseSlug,
+  parseTags,
+  readLimit,
+} from '../services/linkFields.js';
+import { MAX_BULK_ROWS, parseBulkCsv, splitTags, validateBulkRow } from '../services/bulkImport.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -24,53 +32,55 @@ const toResponse = (row) => ({
   hasPassword: row.password_hash != null,
   maxClicks: row.max_clicks,
   usedClicks: row.used_clicks,
+  tags: row.tags ?? [],
+  folderId: row.folder_id ?? null,
+  folderName: row.folder_name ?? null,
   createdAt: row.created_at,
   // Only present when the query selected it (the list endpoint)
   ...(row.click_count !== undefined && { clickCount: row.click_count }),
 });
 
-// Returns { value: Date|null } or { error }
-function parseExpiry(input) {
-  if (input === undefined || input === null || input === '') return { value: null };
-  const date = new Date(input);
-  if (Number.isNaN(date.getTime())) return { error: 'expiresAt is not a valid date' };
-  if (date <= new Date()) return { error: 'expiresAt must be in the future' };
-  return { value: date };
-}
-
-// Returns { value: string|null } or { error }. null/'' means "no password".
-// bcrypt only reads the first 72 bytes, so longer passwords would be silently truncated.
-function parsePassword(input) {
-  if (input === undefined || input === null || input === '') return { value: null };
-  if (typeof input !== 'string') return { error: 'password must be a string' };
-  if (input.length < 4) return { error: 'Link password must be at least 4 characters' };
-  if (Buffer.byteLength(input) > 72) return { error: 'Link password is too long (max 72 bytes)' };
-  return { value: input };
-}
-
-const MAX_CLICK_LIMIT = 1_000_000;
-
-// Returns { value: integer|null } or { error }. null/'' means "no limit".
-function parseMaxClicks(input) {
-  if (input === undefined || input === null || input === '') return { value: null };
-  if (!Number.isInteger(input) || input < 1 || input > MAX_CLICK_LIMIT) {
-    return { error: `maxClicks must be a whole number from 1 to ${MAX_CLICK_LIMIT.toLocaleString('en-US')}` };
-  }
-  return { value: input };
-}
-
-// `oneTime: true` is the pre-v4 spelling of `maxClicks: 1`; still accepted on input.
-// Returns { value } (undefined = field not sent) or { error }.
-function readLimit(body) {
-  if (body?.maxClicks !== undefined) return parseMaxClicks(body.maxClicks);
-  if (body?.oneTime === true) return { value: 1 };
-  if (body?.oneTime === false) return { value: null };
-  return { value: undefined };
-}
+// Appended to INSERT/UPDATE so the response carries the folder's name, like the list does
+const RETURNING_LINK = `RETURNING links.*,
+  (SELECT f.name FROM folders f WHERE f.id = links.folder_id) AS folder_name`;
 
 const MAX_SLUG_ATTEMPTS = 5;
 
-// POST /api/links  { url, slug?, expiresAt?, password?, maxClicks? }
+// True when the folder exists and belongs to the user
+async function folderBelongsTo(userId, folderId) {
+  const { rows } = await query('SELECT 1 FROM folders WHERE id = $1 AND user_id = $2', [folderId, userId]);
+  return rows.length > 0;
+}
+
+// Inserts one link. Returns { row } | { taken: true } (custom slug in use) | { exhausted: true }.
+// A custom slug gets one attempt (a collision is the caller's to fix); a generated one is retried.
+async function insertLink(userId, f) {
+  const run = (slug) =>
+    query(
+      `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, max_clicks, tags, folder_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ${RETURNING_LINK}`,
+      [userId, slug, f.url, f.expiresAt ?? null, f.passwordHash ?? null, f.maxClicks ?? null, f.tags ?? [], f.folderId ?? null]
+    );
+
+  if (f.slug) {
+    try {
+      return { row: (await run(f.slug)).rows[0] };
+    } catch (err) {
+      if (isUniqueViolation(err)) return { taken: true };
+      throw err;
+    }
+  }
+  for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
+    try {
+      return { row: (await run(generateSlug())).rows[0] };
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+    }
+  }
+  return { exhausted: true };
+}
+
+// POST /api/links  { url, slug?, expiresAt?, password?, maxClicks?, tags?, folderId? }
 router.post('/', async (req, res, next) => {
   try {
     const target = validateTargetUrl(req.body?.url);
@@ -81,65 +91,239 @@ router.post('/', async (req, res, next) => {
 
     const pw = parsePassword(req.body?.password);
     if (pw.error) return res.status(400).json({ error: pw.error });
-    const passwordHash = pw.value ? await bcrypt.hash(pw.value, 10) : null;
     const limit = readLimit(req.body);
     if (limit.error) return res.status(400).json({ error: limit.error });
 
-    const customSlug = req.body?.slug ? String(req.body.slug) : null;
-    if (customSlug) {
-      if (!SLUG_REGEX.test(customSlug)) {
-        return res.status(400).json({
-          error: 'slug must be 3-32 characters: letters, numbers, - or _',
-        });
-      }
-      if (isReservedSlug(customSlug)) {
-        return res.status(400).json({ error: 'That slug is reserved' });
-      }
+    const slug = parseSlug(req.body?.slug);
+    if (slug.error) return res.status(400).json({ error: slug.error });
+
+    const tags = parseTags(req.body?.tags);
+    if (tags.error) return res.status(400).json({ error: tags.error });
+
+    const folder = parseFolderId(req.body?.folderId);
+    if (folder.error) return res.status(400).json({ error: folder.error });
+    if (folder.value && !(await folderBelongsTo(req.user.id, folder.value))) {
+      return res.status(400).json({ error: 'Folder not found' });
     }
 
-    const insert = (slug) =>
-      query(
-        `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, max_clicks)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [req.user.id, slug, target.url, expiry.value, passwordHash, limit.value ?? null]
-      );
+    const result = await insertLink(req.user.id, {
+      url: target.url,
+      slug: slug.value,
+      expiresAt: expiry.value,
+      passwordHash: pw.value ? await bcrypt.hash(pw.value, 10) : null,
+      maxClicks: limit.value,
+      tags: tags.value,
+      folderId: folder.value,
+    }).catch((err) => {
+      if (isForeignKeyViolation(err)) return { missingFolder: true };
+      throw err;
+    });
 
-    // Custom slug: one attempt, a collision is the user's problem to fix
-    if (customSlug) {
-      try {
-        const { rows } = await insert(customSlug);
-        return res.status(201).json(toResponse(rows[0]));
-      } catch (err) {
-        if (isUniqueViolation(err)) {
-          return res.status(409).json({ error: 'That slug is already taken' });
-        }
-        throw err;
-      }
-    }
-
-    // Generated slug: retry on the (rare) collision
-    for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
-      try {
-        const { rows } = await insert(generateSlug());
-        return res.status(201).json(toResponse(rows[0]));
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
-      }
-    }
+    if (result.row) return res.status(201).json(toResponse(result.row));
+    if (result.taken) return res.status(409).json({ error: 'That slug is already taken' });
+    if (result.missingFolder) return res.status(400).json({ error: 'Folder not found' });
     res.status(500).json({ error: 'Could not generate a unique slug, try again' });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/links
+// POST /api/links/bulk   Content-Type: text/csv, the CSV as the body
+//   ?dryRun=true   validate and report, create nothing
+//   ?folder=Name   put rows without a folder column value in this folder (created if missing)
+//   ?tags=a,b      add these tags to every row
+// Rows are independent: valid ones are created, invalid ones are reported with their row number.
+router.post('/bulk', text({ type: ['text/csv', 'text/plain'], limit: '1mb' }), async (req, res, next) => {
+  try {
+    if (typeof req.body !== 'string' || req.body === '') {
+      return res.status(400).json({ error: 'Send the CSV as the request body with Content-Type: text/csv' });
+    }
+    const dryRun = req.query.dryRun === 'true' || req.query.dryRun === '1';
+
+    const defaultTags = typeof req.query.tags === 'string' ? splitTags(req.query.tags) : [];
+    const defTags = parseTags(defaultTags);
+    if (defTags.error) return res.status(400).json({ error: defTags.error });
+    let defaultFolder = null;
+    if (typeof req.query.folder === 'string' && req.query.folder.trim() !== '') {
+      const f = parseFolderName(req.query.folder);
+      if (f.error) return res.status(400).json({ error: f.error });
+      defaultFolder = f.value;
+    }
+    const defaults = { tags: defTags.value, folderName: defaultFolder };
+
+    const parsed = parseBulkCsv(req.body, { maxRows: MAX_BULK_ROWS });
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    // 1. Validate every row, and catch the same slug used twice inside the file
+    const firstRowOfSlug = new Map();
+    const entries = parsed.rows.map((raw) => {
+      const checked = validateBulkRow(raw, defaults);
+      if (checked.error) return { row: raw.row, url: raw.url, error: checked.error };
+      const { slug } = checked.value;
+      if (slug) {
+        if (firstRowOfSlug.has(slug)) {
+          return { row: raw.row, url: raw.url, error: `Slug "${slug}" is already used by row ${firstRowOfSlug.get(slug)}` };
+        }
+        firstRowOfSlug.set(slug, raw.row);
+      }
+      return { row: raw.row, url: raw.url, input: checked.value };
+    });
+
+    // 2. Slugs that already exist in the database
+    const wanted = [...firstRowOfSlug.keys()];
+    if (wanted.length > 0) {
+      const { rows } = await query('SELECT slug FROM links WHERE slug = ANY($1::text[])', [wanted]);
+      const taken = new Set(rows.map((r) => r.slug));
+      for (const e of entries) {
+        if (e.input?.slug && taken.has(e.input.slug)) {
+          e.error = 'That slug is already taken';
+          delete e.input;
+        }
+      }
+    }
+
+    // 3. Folders: which exist, which would be created, and whether that stays under the limit
+    const valid = entries.filter((e) => e.input);
+    const folderIds = new Map(); // lowercase name -> id
+    const existing = await query('SELECT id, name FROM folders WHERE user_id = $1', [req.user.id]);
+    for (const f of existing.rows) folderIds.set(f.name.toLowerCase(), f.id);
+
+    const newFolders = new Map(); // lowercase name -> name as first written
+    for (const e of valid) {
+      const name = e.input.folderName;
+      if (name && !folderIds.has(name.toLowerCase()) && !newFolders.has(name.toLowerCase())) {
+        newFolders.set(name.toLowerCase(), name);
+      }
+    }
+    if (existing.rows.length + newFolders.size > MAX_FOLDERS_PER_USER) {
+      return res.status(400).json({
+        error: `This import would create ${newFolders.size} new folders, which exceeds the limit of ${MAX_FOLDERS_PER_USER} folders`,
+      });
+    }
+
+    const summary = (created) => {
+      const total = entries.length;
+      return {
+        dryRun,
+        total,
+        valid: valid.length,
+        created,
+        failed: dryRun ? total - valid.length : total - created,
+        ignoredColumns: parsed.ignoredColumns,
+        newFolders: [...newFolders.values()],
+      };
+    };
+
+    if (dryRun) {
+      return res.json({
+        ...summary(0),
+        results: entries.map((e) =>
+          e.error
+            ? { row: e.row, url: e.url, status: 'error', error: e.error }
+            : { row: e.row, url: e.url, status: 'ok' }
+        ),
+      });
+    }
+
+    // 4. Create the folders, then the links one by one
+    if (newFolders.size > 0) {
+      await query(
+        `INSERT INTO folders (user_id, name)
+         SELECT $1, n FROM unnest($2::text[]) AS n
+         ON CONFLICT (user_id, lower(name)) DO NOTHING`,
+        [req.user.id, [...newFolders.values()]]
+      );
+      // Re-read, so a folder created by a concurrent request is picked up too
+      const all = await query('SELECT id, name FROM folders WHERE user_id = $1', [req.user.id]);
+      folderIds.clear();
+      for (const f of all.rows) folderIds.set(f.name.toLowerCase(), f.id);
+    }
+
+    let created = 0;
+    const results = [];
+    for (const e of entries) {
+      if (!e.input) {
+        results.push({ row: e.row, url: e.url, status: 'error', error: e.error });
+        continue;
+      }
+      const { input } = e;
+      try {
+        const out = await insertLink(req.user.id, {
+          url: input.url,
+          slug: input.slug,
+          expiresAt: input.expiresAt,
+          passwordHash: input.password ? await bcrypt.hash(input.password, 10) : null,
+          maxClicks: input.maxClicks,
+          tags: input.tags,
+          folderId: input.folderName ? folderIds.get(input.folderName.toLowerCase()) ?? null : null,
+        });
+        if (out.row) {
+          created++;
+          results.push({ row: e.row, url: e.url, status: 'created', link: toResponse(out.row) });
+        } else {
+          const error = out.taken ? 'That slug is already taken' : 'Could not generate a unique slug, try again';
+          results.push({ row: e.row, url: e.url, status: 'error', error });
+        }
+      } catch (err) {
+        if (!isForeignKeyViolation(err)) throw err;
+        results.push({ row: e.row, url: e.url, status: 'error', error: 'Folder not found' });
+      }
+    }
+
+    res.json({ ...summary(created), results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/links?folder=<id>|none&tag=<name>&q=<text>
+// All filters are optional and combine with AND. q matches the slug, destination or a tag.
 router.get('/', async (req, res, next) => {
   try {
+    const params = [req.user.id];
+    const where = ['l.user_id = $1'];
+    const add = (sql, value) => {
+      params.push(value);
+      const n = params.length;
+      where.push(sql.replaceAll('$$', () => `$${n}`));
+    };
+
+    const { folder, tag, q } = req.query;
+    if (folder !== undefined) {
+      if (folder === 'none') where.push('l.folder_id IS NULL');
+      else {
+        const id = parseFolderId(folder);
+        if (typeof folder !== 'string' || id.error || !id.value) {
+          return res.status(400).json({ error: 'folder must be a folder id or "none"' });
+        }
+        add('l.folder_id = $$', id.value);
+      }
+    }
+    if (tag !== undefined) {
+      if (typeof tag !== 'string' || normalizeTag(tag) === '') {
+        return res.status(400).json({ error: 'tag must be a single tag name' });
+      }
+      add('l.tags @> ARRAY[$$::text]', normalizeTag(tag));
+    }
+    if (q !== undefined) {
+      if (typeof q !== 'string') return res.status(400).json({ error: 'q must be text' });
+      const needle = q.trim().toLowerCase().slice(0, 100);
+      if (needle) {
+        add(
+          `(position($$::text in lower(l.slug)) > 0
+            OR position($$::text in lower(l.target_url)) > 0
+            OR EXISTS (SELECT 1 FROM unnest(l.tags) AS t WHERE position($$::text in t) > 0))`,
+          needle
+        );
+      }
+    }
+
     const { rows } = await query(
-      `SELECT l.*,
+      `SELECT l.*, f.name AS folder_name,
               (SELECT COUNT(*)::int FROM clicks c WHERE c.link_id = l.id) AS click_count
-       FROM links l WHERE l.user_id = $1 ORDER BY l.created_at DESC`,
-      [req.user.id]
+       FROM links l LEFT JOIN folders f ON f.id = l.folder_id
+       WHERE ${where.join(' AND ')} ORDER BY l.created_at DESC`,
+      params
     );
     res.json(rows.map(toResponse));
   } catch (err) {
@@ -149,7 +333,8 @@ router.get('/', async (req, res, next) => {
 
 // PATCH /api/links/:id
 //   { isActive?, url?, expiresAt? (null clears), password? (null removes),
-//     maxClicks? (null removes the limit), resetClicks? (true zeroes the used counter) }
+//     maxClicks? (null removes the limit), resetClicks? (true zeroes the used counter),
+//     tags? (array, replaces all tags), folderId? (null removes it from its folder) }
 // Changing maxClicks keeps the used counter, so raising 5 -> 10 after 5 visits leaves 5 more;
 // removing the limit also zeroes the counter. The pre-v4 `oneTime: true` still works and
 // re-arms the link (limit 1, counter 0).
@@ -196,18 +381,40 @@ router.patch('/:id', async (req, res, next) => {
     }
     if (req.body?.resetClicks === true && !sets.includes('used_clicks = 0')) sets.push('used_clicks = 0');
 
+    if (req.body?.tags !== undefined) {
+      const tags = parseTags(req.body.tags);
+      if (tags.error) return res.status(400).json({ error: tags.error });
+      add('tags', tags.value);
+    }
+
+    if (req.body?.folderId !== undefined) {
+      const folder = parseFolderId(req.body.folderId);
+      if (folder.error) return res.status(400).json({ error: folder.error });
+      if (folder.value && !(await folderBelongsTo(req.user.id, folder.value))) {
+        return res.status(400).json({ error: 'Folder not found' });
+      }
+      add('folder_id', folder.value);
+    }
+
     if (sets.length === 0) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
 
     params.push(id, req.user.id);
-    const { rows } = await query(
-      `UPDATE links SET ${sets.join(', ')}
-       WHERE id = $${params.length - 1} AND user_id = $${params.length}
-       RETURNING *`,
-      params
-    );
+    let rows;
+    try {
+      ({ rows } = await query(
+        `UPDATE links SET ${sets.join(', ')}
+         WHERE id = $${params.length - 1} AND user_id = $${params.length}
+         ${RETURNING_LINK}`,
+        params
+      ));
+    } catch (err) {
+      if (isForeignKeyViolation(err)) return res.status(400).json({ error: 'Folder not found' });
+      throw err;
+    }
     if (!rows[0]) return res.status(404).json({ error: 'Link not found' });
+    // Tags and folders do not affect redirects, but the cached row is rebuilt anyway
     invalidate(rows[0].slug);
     res.json(toResponse(rows[0]));
   } catch (err) {

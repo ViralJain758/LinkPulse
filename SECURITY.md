@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please do **not** open a public issue. Report privately through GitHub's "Report a vulnerability" (Security tab) on this repository, or email the maintainer. Include steps to reproduce and the impact. You will get an acknowledgement and a fix timeline.
+Please do **not** open a public issue. Report privately through GitHub's "Report a vulnerability" (the Security tab of [ViralJain758/LinkPulse](https://github.com/ViralJain758/LinkPulse/security/advisories/new)), or email the maintainer. Include steps to reproduce and the impact. You will get an acknowledgement and a fix timeline.
 
 ## Security model
 
@@ -13,6 +13,7 @@ Please do **not** open a public issue. Report privately through GitHub's "Report
 - **Visitor privacy:** IPs are stored only as an HMAC-SHA256 keyed by `IP_HASH_SECRET`; referrers are reduced to hostnames.
 - **Open-redirect/abuse controls:** only `http(s)` targets, max 2048 characters, and links to the service's own host are rejected. There is no malware/phishing screening of destinations.
 - **SQL:** parameterized queries throughout.
+- **Bulk import:** limited to 500 rows and 1 MB per request, authenticated, and every row goes through the same validation as a single create (http(s) targets only, slug rules, password length). Tags, folder names and the search text are only ever passed as query parameters. The dashboard's results file prefixes cells that start with `=`, `+`, `-` or `@` so spreadsheet apps do not run them as formulas. Rows with passwords are hashed with bcrypt one at a time, which is why the row cap matters.
 - **Gate pages:** password pages are sent with `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer` and a restrictive CSP.
 
 ## Deployment checklist
