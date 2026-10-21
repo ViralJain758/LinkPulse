@@ -1,4 +1,5 @@
 import { SLUG_REGEX, isReservedSlug } from './slug.js';
+import { checkUrlSyntax } from './ssrf.js';
 
 // Validation for link fields, shared by the single-link routes and the CSV bulk import.
 // Every parser returns { value } or { error }; nothing here touches the database.
@@ -37,9 +38,11 @@ export function parseWebhookUrl(input) {
   } catch {
     return { error: 'webhookUrl is not valid' };
   }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return { error: 'webhookUrl must use http or https' };
-  }
+  if (input.length > 2048) return { error: 'webhookUrl is too long (max 2048 characters)' };
+  // Fast feedback only. The real protection runs at send time on the resolved IP (services/ssrf.js),
+  // because a host name can resolve to an internal address or change later.
+  const problem = checkUrlSyntax(parsed);
+  if (problem) return { error: `webhookUrl ${problem}` };
   return { value: parsed.toString() };
 }
 

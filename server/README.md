@@ -6,8 +6,9 @@ Express API and redirect service. See the [root README](../README.md) for the ov
 
 ```bash
 npm install
-cp .env.example .env                    # set JWT_SECRET and DATABASE_URL
-psql "$DATABASE_URL" -f db/schema.sql   # idempotent; re-run after upgrades
+cp .env.example .env                    # set JWT_SECRET and DATABASE_URL (Supabase pooler string)
+# apply db/schema.sql once: paste it into the Supabase SQL Editor, or run
+# psql "$DATABASE_URL" -f db/schema.sql  # idempotent; re-run after upgrades
 npm run dev                             # watch mode, port 4000
 npm start                               # production
 npm test                                # unit tests (node:test, no database needed)

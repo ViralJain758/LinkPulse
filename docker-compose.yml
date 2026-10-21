@@ -1,3 +1,5 @@
+# Optional: an offline local Postgres. LinkPulse's database is Supabase (see the README); use this only
+# without internet access or to try things out.
 # Local development database only. Do not use these credentials in production.
 services:
   db:

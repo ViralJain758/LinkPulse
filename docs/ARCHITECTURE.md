@@ -1,10 +1,12 @@
 # Architecture
 
 ```
-Browser ──► React dashboard (Vite) ──/api──► Express ──► PostgreSQL
-Visitor ──► GET /:slug ───────────────────► Express ──► slug cache ──miss──► PostgreSQL (links)
+Browser ──► React dashboard (Vite) ──/api──► Express ──► Supabase (Postgres)
+Visitor ──► GET /:slug ───────────────────► Express ──► slug cache ──miss──► Supabase (links)
                                                └─► in-memory click buffer ─► batch INSERT (clicks)
 ```
+
+The database is Supabase Postgres, used as plain Postgres through `pg` and the connection pooler (`server/src/db.js`): no `supabase-js`, no Supabase API keys, no Supabase Auth. Row Level Security is enabled on every table with no policies so Supabase's REST API exposes nothing; see [DEPLOYMENT.md](DEPLOYMENT.md#database).
 
 One Express process serves the JSON API under `/api`, a health check, and the public redirect on `/:slug`. The redirect router is registered **last** because it matches any single path segment; reserved slugs (`api`, `login`, `health`, ...) cannot be claimed.
 

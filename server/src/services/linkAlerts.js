@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { safePost } from './ssrf.js';
 
 const normalizeMilestones = (value) => {
   if (value == null) return [];
@@ -54,7 +55,12 @@ async function notificationTransport() {
   });
 }
 
-export async function triggerLinkAlerts(link, events, { usedClicksBefore, usedClicksAfter } = {}) {
+// `sendWebhook` is injectable so tests don't need the network.
+export async function triggerLinkAlerts(
+  link,
+  events,
+  { usedClicksBefore, usedClicksAfter, sendWebhook = safePost } = {}
+) {
   const eventList = Array.isArray(events) ? events : [events];
   if (eventList.length === 0) return;
 
@@ -72,11 +78,12 @@ export async function triggerLinkAlerts(link, events, { usedClicksBefore, usedCl
   if (webhookUrl) {
     for (const eventName of eventList) {
       try {
-        await fetch(webhookUrl, {
-          method: 'POST',
+        // safePost refuses private/loopback/metadata targets (checked on the resolved IP), never
+        // follows redirects and has a hard timeout. See services/ssrf.js.
+        const { status } = await sendWebhook(webhookUrl, JSON.stringify({ ...payloadBase, event: eventName }), {
           headers: { 'content-type': 'application/json', 'user-agent': 'LinkPulse/1.0' },
-          body: JSON.stringify({ ...payloadBase, event: eventName }),
         });
+        if (status >= 300) console.error(`Webhook alert got HTTP ${status} (redirects are not followed)`);
       } catch (err) {
         console.error('Webhook alert failed:', err.message);
       }

@@ -149,3 +149,17 @@ CREATE UNLOGGED TABLE IF NOT EXISTS rate_limits (
   reset_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at);
+
+-- v10: Supabase. Supabase serves every table in the public schema over its REST API (PostgREST) to anyone
+-- holding the project's public "anon" key. LinkPulse never uses that API: the server connects to Postgres
+-- directly as the postgres role. Row Level Security with no policies makes the REST API see nothing, while
+-- the server's own connection (the table owner, which bypasses RLS) is unaffected. Harmless on plain Postgres.
+-- Re-runnable.
+ALTER TABLE users       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE links       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE folders     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE domains     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clicks      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;

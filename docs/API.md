@@ -91,6 +91,8 @@ Creation is limited per user (500 per hour by default): over the limit the respo
 
 **Destination safety.** If the server has `SAFE_BROWSING_API_KEY` set, `url` and every `routes[].url` are checked against Google Safe Browsing. A listed destination is refused with `400` and an error such as `This destination was flagged by Google Safe Browsing as phishing or deceptive content and can't be shortened`. If the check can't run and the server is set to fail closed, the response is `503`. The same check applies to `url`/`routes` in `PATCH /api/links/:id` and to each row of `POST /api/links/bulk` (a flagged row is reported as a failed row with that error; the other rows are still created).
 
+**Visit-time check.** The same check runs when someone opens a short link (results cached for 5 minutes). If the destination has been flagged since the link was saved, the visitor gets a `403` "Link blocked" page instead of the redirect; a click-limited link is not consumed and no click is logged. If Safe Browsing can't be reached the redirect goes ahead.
+
 ### `GET /api/links`
 Your links, newest first, with `clickCount`. Optional filters, combined with AND:
 

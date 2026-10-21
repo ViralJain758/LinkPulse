@@ -17,29 +17,32 @@ test('detectTriggeredAlerts catches one-time and milestone thresholds', () => {
 
 test('triggerLinkAlerts sends webhook payloads when configured', async () => {
   const calls = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, opts) => {
-    calls.push({ url, body: JSON.parse(opts.body) });
-    return { ok: true };
+  const sendWebhook = async (url, body) => {
+    calls.push({ url, body: JSON.parse(body) });
+    return { status: 200 };
   };
 
-  try {
-    const link = {
-      slug: 'promo',
-      shortUrl: 'http://localhost:4000/promo',
-      targetUrl: 'https://example.com',
-      maxClicks: 5,
-      notifyOnClicks: [3],
-      webhookUrl: 'https://example.com/hook',
-      notificationEmail: 'ops@example.com',
-    };
+  const link = {
+    slug: 'promo',
+    shortUrl: 'http://localhost:4000/promo',
+    targetUrl: 'https://example.com',
+    maxClicks: 5,
+    notifyOnClicks: [3],
+    webhookUrl: 'https://example.com/hook',
+    notificationEmail: 'ops@example.com',
+  };
 
-    await triggerLinkAlerts(link, ['milestone_3'], { usedClicksBefore: 2, usedClicksAfter: 3 });
+  await triggerLinkAlerts(link, ['milestone_3'], { usedClicksBefore: 2, usedClicksAfter: 3, sendWebhook });
 
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].body.event, 'milestone_3');
-    assert.equal(calls[0].body.usedClicksAfter, 3);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://example.com/hook');
+  assert.equal(calls[0].body.event, 'milestone_3');
+  assert.equal(calls[0].body.usedClicksAfter, 3);
+});
+
+test('triggerLinkAlerts swallows a blocked webhook and still returns', async () => {
+  const sendWebhook = async () => {
+    throw new Error('blocked url');
+  };
+  await triggerLinkAlerts({ slug: 'x', webhookUrl: 'http://127.0.0.1/x' }, ['milestone_1'], { sendWebhook });
 });

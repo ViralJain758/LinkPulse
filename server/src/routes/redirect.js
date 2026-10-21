@@ -7,6 +7,7 @@ import { isBlocked, recordFailure, clearFailures, ipKey } from '../services/rate
 import { getCached, setCached, currentEpoch, slugKey } from '../services/slugCache.js';
 import { resolveDomainId } from '../services/domainLookup.js';
 import { resolveDestination } from '../services/routing.js';
+import { flaggedThreat, threatLabel } from '../services/safeBrowsing.js';
 import { detectTriggeredAlerts, triggerLinkAlerts } from '../services/linkAlerts.js';
 
 const router = Router();
@@ -42,6 +43,27 @@ button{margin-top:12px;background:#2f5bff;border-color:#2f5bff;color:#fff;font-w
 
 const message = (res, status, title, text) =>
   sendPage(res, status, title, `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p>`);
+
+// Shown instead of the redirect when Safe Browsing lists the destination. Deliberately has no
+// "continue anyway" button, and doesn't print the destination: password-protected links keep
+// theirs private, and a clickable URL on a page about phishing defeats the point.
+const unsafePage = (res, threat) =>
+  message(
+    res,
+    403,
+    'Link blocked',
+    `Google Safe Browsing has flagged this link's destination as ${threatLabel(threat)}, so we stopped the redirect to protect you. If you own this link, check the destination site or edit the link.`
+  );
+
+// Re-checks where this visit would land. Sends the warning page and returns true when flagged.
+// Runs before the password form and before a click-limited visit is consumed, so a blocked
+// visit costs nothing. A failed lookup lets the visit through (see flaggedThreat).
+async function blockedAsUnsafe(link, req, res) {
+  const threat = await flaggedThreat(resolveDestination(link, req));
+  if (!threat) return false;
+  unsafePage(res, threat);
+  return true;
+}
 
 // Only the known tag is honoured, so the query string can't be used to inject arbitrary
 // values into the stats. QR codes encode /slug?s=qr.
@@ -138,7 +160,8 @@ async function consume(link) {
       webhookUrl: link.webhook_url ?? link.webhookUrl ?? null,
       notificationEmail: link.notification_email ?? link.notificationEmail ?? null,
     };
-    await triggerLinkAlerts(alertLink, triggered, {
+    // Not awaited: a slow or hanging webhook/SMTP server must never delay the visitor's redirect.
+    triggerLinkAlerts(alertLink, triggered, {
       usedClicksBefore: previousUsedClicks,
       usedClicksAfter: nextUsedClicks,
     }).catch((err) => console.error('Link alert processing failed:', err.message));
@@ -166,6 +189,7 @@ router.get('/:slug', async (req, res, next) => {
     const domainId = await resolveDomainId(req.hostname);
     const link = await findLink(domainId, req.params.slug);
     if (checkServable(link, res)) return;
+    if (await blockedAsUnsafe(link, req, res)) return;
 
     if (link.password_hash) return passwordPage(res, req.params.slug, null, 200, sourceOf(req));
 
@@ -191,6 +215,7 @@ router.post('/:slug', urlencoded({ extended: false, limit: '2kb' }), async (req,
     const domainId = await resolveDomainId(req.hostname);
     const link = await findLink(domainId, slug);
     if (checkServable(link, res)) return;
+    if (await blockedAsUnsafe(link, req, res)) return;
     const source = sourceOf(req);
     if (!link.password_hash) return res.redirect(303, `/${encodeURIComponent(slug)}${source ? `?s=${source}` : ''}`);
 

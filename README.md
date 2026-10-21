@@ -4,7 +4,7 @@
 
 A self-hosted URL shortener with built-in click analytics. Create short links, protect them with a password, limit them to a number of visits, share them as QR codes, and watch the clicks come in on a live dashboard.
 
-> Stack: Node.js (Express) · PostgreSQL · React (Vite) · Recharts
+> Stack: Node.js (Express) · Supabase (PostgreSQL) · React (Vite) · Recharts
 
 ## Features
 
@@ -22,19 +22,18 @@ A self-hosted URL shortener with built-in click analytics. Create short links, p
 
 ## Quick start
 
-Requirements: **Node.js 20.6+** and **PostgreSQL 13+** (or Docker for the database).
+Requirements: **Node.js 20.6+** and a [Supabase](https://supabase.com) project (the free plan is enough to start). Docker is only needed if you want an offline local Postgres instead.
 
 ```bash
 git clone https://github.com/ViralJain758/LinkPulse.git && cd LinkPulse
 
-# 1. Database (either use your own Postgres, or:)
-docker compose up -d db          # Postgres on localhost:5432, schema applied automatically
+# 1. Database: create a Supabase project, open SQL Editor, paste server/db/schema.sql and run it.
+#    (Offline instead? `docker compose up -d db` starts a local Postgres with the schema applied.)
 
 # 2. Server
 cd server
 npm install
-cp .env.example .env             # set JWT_SECRET and DATABASE_URL
-# if you did not use docker compose: psql "$DATABASE_URL" -f db/schema.sql
+cp .env.example .env             # set JWT_SECRET and DATABASE_URL (Supabase: Connect > Transaction pooler)
 npm run dev                      # http://localhost:4000
 
 # 3. Client (new terminal)
@@ -45,7 +44,7 @@ npm run dev                      # http://localhost:5173
 
 Open http://localhost:5173, register an account, and create your first link.
 
-Upgrading from an earlier version? Re-run `psql "$DATABASE_URL" -f server/db/schema.sql` (it is idempotent) before starting the new server.
+Upgrading from an earlier version? Re-run `server/db/schema.sql` (paste it into the Supabase SQL Editor, or `psql "$DATABASE_URL" -f server/db/schema.sql`; it is idempotent) before starting the new server.
 
 ## Custom domains
 
@@ -86,7 +85,7 @@ linkpulse/
 │   └── test/          Unit tests (`npm test`)
 ├── client/            React dashboard (Vite)
 ├── docs/              API reference, architecture, deployment
-└── docker-compose.yml Local Postgres
+└── docker-compose.yml Optional offline Postgres
 ```
 
 ## Documentation

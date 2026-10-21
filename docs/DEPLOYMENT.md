@@ -4,7 +4,10 @@
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | yes | | Postgres connection string |
+| `DATABASE_URL` | yes | | Postgres connection string. Supabase: **Connect > Transaction pooler** (port 6543) |
+| `DATABASE_SSL` | no | `auto` | TLS to the database: `auto` (on for Supabase hosts, off otherwise), `require` (encrypted, certificate not checked), `verify` (checked against `DATABASE_SSL_CA`), `false` |
+| `DATABASE_SSL_CA` | with `verify` | | Path to the CA certificate file downloaded from the Supabase dashboard (Database settings) |
+| `DATABASE_POOL_MAX` | no | `10` | Most connections one server process holds open |
 | `JWT_SECRET` | yes | | Signs login tokens. Use a long random value |
 | `PORT` | no | `4000` | HTTP port |
 | `BASE_URL` | no | `http://localhost:4000` | Public URL of the shortener. Used to build short links and block links to itself |
@@ -15,6 +18,8 @@
 | `SLUG_CACHE_MAX` | no | `1000` | Maximum cached links per process (least recently used are dropped first) |
 | `SAFE_BROWSING_API_KEY` | no | off | Google Safe Browsing API key. When set, destination URLs are checked when a link is created or edited and listed phishing/malware sites are refused. Create a key in Google Cloud with the Safe Browsing API enabled |
 | `SAFE_BROWSING_TIMEOUT_MS` | no | `3000` | How long to wait for Google before treating the check as failed |
+| `SAFE_BROWSING_RECHECK_ON_REDIRECT` | no | `true` | `true`: the destination is checked again on each visit (cached 5 minutes) and a "Link blocked" page is shown, with status `403`, if it has been flagged since the link was saved. Needs `SAFE_BROWSING_API_KEY`. Always fails open: if Google can't be reached the visit is redirected |
+| `SAFE_BROWSING_REDIRECT_TIMEOUT_MS` | no | `1500` | How long a visit waits for Google before redirecting anyway. After a failed lookup, visit-time checks pause for 30 s |
 | `SAFE_BROWSING_FAIL_CLOSED` | no | `false` | `false`: links are saved if Safe Browsing can't be reached (the error is logged). `true`: they are refused with `503` until it works again |
 | `ACCESS_TOKEN_TTL_MINUTES` | no | `15` | Lifetime of an access token. A revoked session stops working immediately regardless; this only bounds how often clients refresh |
 | `REFRESH_TOKEN_TTL_DAYS` | no | `30` | A session ends after this many days without a refresh (each refresh extends it) |
@@ -33,9 +38,27 @@ Node 20.6+ is required (`--env-file`).
 
 ## Database
 
-```bash
-psql "$DATABASE_URL" -f server/db/schema.sql
-```
+LinkPulse's database is [Supabase](https://supabase.com) Postgres. The server talks to it with an ordinary Postgres connection (`pg`); it does not use the Supabase API, the `anon`/`service_role` keys or Supabase Auth (accounts and sessions are LinkPulse's own).
+
+**Set up (new project, no data to migrate):**
+
+1. Create a Supabase project and note the database password.
+2. Open **SQL Editor**, paste `server/db/schema.sql` and run it. Or from a shell: `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f server/db/schema.sql` (use the Session pooler or Direct string for this, see below).
+3. Click **Connect** in the dashboard, copy the **Transaction pooler** string into `DATABASE_URL`, and put the password in it (URL-encode special characters such as `@`, `#` or `/`).
+
+**Which connection string:**
+
+| String | Port | Use it for |
+|---|---|---|
+| Transaction pooler | 6543 on `...pooler.supabase.com` | The running server. Connections are shared between clients, which suits many instances or a serverless host. LinkPulse uses no transactions across queries, no named prepared statements and no session state, so it works in this mode |
+| Session pooler | 5432 on `...pooler.supabase.com` | `psql`, `pg_dump` and one-off scripts from an IPv4-only network |
+| Direct | 5432 on `db.[ref].supabase.co` | Same, from an IPv6-capable network (IPv4 needs Supabase's paid add-on) |
+
+**TLS.** Supabase only accepts encrypted connections. With `DATABASE_SSL=auto` the server turns TLS on for `*.supabase.co` and `*.supabase.com` hosts and leaves it off for others, such as the local docker database. That encrypts the connection but does not check the server's certificate. To check it, download the CA certificate from the dashboard (Database settings) and set `DATABASE_SSL=verify` and `DATABASE_SSL_CA=/path/to/certificate`.
+
+**Row Level Security.** Supabase exposes every table in the `public` schema through its REST API to holders of the project's public `anon` key. `schema.sql` enables Row Level Security on every table with no policies, so that API returns nothing. The server is not affected because it connects as the table owner (`postgres`), which bypasses RLS. Connect with the `postgres` user from the dashboard's strings; a role without `BYPASSRLS` would see empty tables. If you do not use the REST API at all you can also turn it off in the project's API settings.
+
+**Offline development.** `docker compose up -d db` starts a plain local Postgres with the schema applied; point `DATABASE_URL` at `postgres://postgres:postgres@localhost:5432/linkpulse` (TLS stays off there).
 
 The script is idempotent and is also how you upgrade (v4 replaces `links.one_time`/`used_at` with `max_clicks`/`used_clicks`, migrating existing one-time links, and adds `clicks.source`; v6 adds the `domains` table and `links.domain_id`, and makes slugs unique per domain instead of globally (existing links stay on the default domain); v5 adds the `folders` table and `links.folder_id`/`links.tags`, with existing links left unfiled and untagged). Run it after pulling new versions, **before or together with** starting the new server: the old server does not know the new columns, and the new one does not know the old ones.
 
@@ -130,4 +153,4 @@ The dashboard lives at `/` and `/assets/`; every other single-segment path is a 
 
 ## Backups and maintenance
 
-Back up Postgres (`pg_dump`). The `clicks` table grows with traffic; consider pruning or partitioning by month if you pass tens of millions of rows.
+Back up the database. Which automatic backups Supabase keeps depends on your plan (check the dashboard); `pg_dump` over the Session pooler or Direct string always works. The `clicks` table grows with traffic; consider pruning or partitioning by month if you pass tens of millions of rows.
