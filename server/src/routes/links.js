@@ -9,6 +9,7 @@ import { findServiceHosts } from '../services/domainLookup.js';
 import { normalizeHost } from '../services/domainDns.js';
 import { generateSlug } from '../services/slug.js';
 import { parseRoutes } from '../services/routing.js';
+import { checkDestinations, firstDestinationProblem } from '../services/safeBrowsing.js';
 import {
   MAX_FOLDERS_PER_USER,
   normalizeTag,
@@ -169,6 +170,9 @@ router.post('/', async (req, res, next) => {
     if (routes.error) return res.status(400).json({ error: routes.error });
     if (await routesPointAtService(routes.value)) return res.status(400).json({ error: SELF_LINK_ERROR });
 
+    const unsafe = await firstDestinationProblem([target.url, ...routes.value.map((r) => r.url)]);
+    if (unsafe) return res.status(unsafe.status).json({ error: unsafe.error });
+
     const folder = parseFolderId(req.body?.folderId);
     if (folder.error) return res.status(400).json({ error: folder.error });
     if (folder.value && !(await folderBelongsTo(req.user.id, folder.value))) {
@@ -264,6 +268,16 @@ router.post('/bulk', text({ type: ['text/csv', 'text/plain'], limit: '1mb' }), a
     for (const e of live()) {
       if (serviceHosts.has(new URL(e.input.url).hostname.toLowerCase())) {
         e.error = SELF_LINK_ERROR;
+        delete e.input;
+      }
+    }
+
+    // 2b. Refuse destinations Google Safe Browsing flags (one batched lookup for the whole file)
+    const flagged = await checkDestinations(live().map((e) => e.input.url));
+    for (const e of live()) {
+      const b = flagged.get(e.input.url);
+      if (b) {
+        e.error = b.error;
         delete e.input;
       }
     }
@@ -482,6 +496,8 @@ router.patch('/:id', async (req, res, next) => {
       const target = validateTargetUrl(req.body.url);
       if (!target.ok) return res.status(400).json({ error: target.error });
       if (await pointsAtCustomDomain(target.url)) return res.status(400).json({ error: SELF_LINK_ERROR });
+      const unsafe = await firstDestinationProblem([target.url]);
+      if (unsafe) return res.status(unsafe.status).json({ error: unsafe.error });
       add('target_url', target.url);
     }
 
@@ -536,6 +552,8 @@ router.patch('/:id', async (req, res, next) => {
       const routes = parseRoutes(req.body.routes);
       if (routes.error) return res.status(400).json({ error: routes.error });
       if (await routesPointAtService(routes.value)) return res.status(400).json({ error: SELF_LINK_ERROR });
+      const unsafe = await firstDestinationProblem(routes.value.map((r) => r.url));
+      if (unsafe) return res.status(unsafe.status).json({ error: unsafe.error });
       add('routes', JSON.stringify(routes.value));
     }
 

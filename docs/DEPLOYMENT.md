@@ -13,6 +13,9 @@
 | `IP_HASH_SECRET` | no | `JWT_SECRET` | Key for hashing visitor IPs. Changing it resets unique-visitor continuity |
 | `SLUG_CACHE_TTL_SECONDS` | no | `60` | How long the redirect caches a link lookup. `0` disables the cache. With several instances this is how long an edit/delete can take to reach the others |
 | `SLUG_CACHE_MAX` | no | `1000` | Maximum cached links per process (least recently used are dropped first) |
+| `SAFE_BROWSING_API_KEY` | no | off | Google Safe Browsing API key. When set, destination URLs are checked when a link is created or edited and listed phishing/malware sites are refused. Create a key in Google Cloud with the Safe Browsing API enabled |
+| `SAFE_BROWSING_TIMEOUT_MS` | no | `3000` | How long to wait for Google before treating the check as failed |
+| `SAFE_BROWSING_FAIL_CLOSED` | no | `false` | `false`: links are saved if Safe Browsing can't be reached (the error is logged). `true`: they are refused with `503` until it works again |
 | `CUSTOM_DOMAIN_TARGET` | no | host of `BASE_URL` | What users are told to point their custom domain at: a host name for a CNAME, or an IP address. Set it when the public host differs from `BASE_URL`, for example a dedicated `cname.sho.rt` |
 
 Node 20.6+ is required (`--env-file`).

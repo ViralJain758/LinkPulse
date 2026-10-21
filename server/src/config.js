@@ -42,5 +42,10 @@ export const config = {
   notificationFromEmail: process.env.NOTIFICATION_FROM_EMAIL || process.env.SMTP_USER || '',
   // What users should point their custom domain at (a CNAME target or an IP address).
   // Defaults to the host of BASE_URL.
+  // Google Safe Browsing: target URLs are checked before a link is saved. Empty = check is off.
+  safeBrowsingApiKey: (process.env.SAFE_BROWSING_API_KEY || '').trim(),
+  safeBrowsingTimeoutMs: parseCount(process.env.SAFE_BROWSING_TIMEOUT_MS, 3000) || 3000,
+  // true = refuse to save links while Safe Browsing can't be reached; false = allow them.
+  safeBrowsingFailClosed: (process.env.SAFE_BROWSING_FAIL_CLOSED || 'false').toLowerCase() === 'true',
   customDomainTarget: (process.env.CUSTOM_DOMAIN_TARGET || '').trim().toLowerCase(),
 };
