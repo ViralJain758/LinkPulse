@@ -39,6 +39,25 @@ async function request(path, { method = 'GET', body, csv } = {}) {
   return data;
 }
 
+// CSV downloads need the auth header, so fetch the file and save it from a blob.
+// kind: 'timeseries' (clicks per period per link) | 'clicks' (one row per click); ids: optional link ids
+export async function downloadExport({ kind, range, ids = [] }) {
+  const token = getSession()?.token;
+  const qs = new URLSearchParams({ kind, range, tz: timeZone, ...(ids.length && { ids: ids.join(',') }) });
+  const res = await fetch(`/api/stats/export?${qs}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    if (res.status === 401 && token) onUnauthorized();
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Export failed (${res.status})`);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `linkpulse-${kind}-${range}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const api = {
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   register: (email, password) => request('/auth/register', { method: 'POST', body: { email, password } }),
@@ -65,6 +84,8 @@ export const api = {
   updateLink: (id, body) => request(`/links/${id}`, { method: 'PATCH', body }),
   deleteLink: (id) => request(`/links/${id}`, { method: 'DELETE' }),
   overview: (range) => request(`/stats/overview?range=${range}&tz=${encodeURIComponent(timeZone)}`),
+  compare: (ids, range) => request(`/stats/compare?ids=${ids.join(',')}&range=${range}&tz=${encodeURIComponent(timeZone)}`),
+  funnel: (range, link) => request(`/stats/funnel?range=${range}&tz=${encodeURIComponent(timeZone)}${link ? `&link=${link}` : ''}`),
   linkStats: (id, range) => request(`/stats/links/${id}?range=${range}&tz=${encodeURIComponent(timeZone)}`),
 };
 

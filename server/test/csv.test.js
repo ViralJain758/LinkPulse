@@ -40,3 +40,14 @@ test('detects semicolon and tab delimiters', () => {
   assert.equal(detectDelimiter('url'), ',');
   assert.deepEqual(cells('url;slug\nhttps://a.com;a'), [['url', 'slug'], ['https://a.com', 'a']]);
 });
+
+import { toCsv } from '../src/services/csv.js';
+
+test('toCsv quotes, escapes, guards formulas and round-trips through parseCsv', () => {
+  const out = toCsv([['a', 'b'], ['x, y', 'say "hi"'], ['=SUM(A1)', 5], [null, 'line1\nline2']]);
+  assert.ok(out.startsWith('﻿'));
+  assert.ok(out.includes("'=SUM(A1)"));
+  const back = parseCsv(out).records.map((r) => r.cells);
+  assert.deepEqual(back[1], ['x, y', 'say "hi"']);
+  assert.deepEqual(back[3], ['', 'line1\nline2']);
+});

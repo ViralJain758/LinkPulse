@@ -32,7 +32,7 @@ The script is idempotent and is also how you upgrade (v4 replaces `links.one_tim
 3. **Run the server:** `cd server && npm ci --omit=dev && npm start`. Keep it alive with systemd, pm2 or a container.
 4. **HTTPS** via your reverse proxy or platform.
 5. **`TRUST_PROXY`**: set it to match the proxy setup. Without it every visitor has the proxy's IP, unique visitors collapse to 1 and the password rate limiter blocks everyone together.
-6. **Countries:** the server only reads CDN headers (`CF-IPCountry`, `X-Vercel-IP-Country`, `CloudFront-Viewer-Country`). Without a CDN the country column stays empty.
+6. **Countries:** the server reads a CDN header when there is one (`CF-IPCountry`, `X-Vercel-IP-Country`, `CloudFront-Viewer-Country`) and otherwise looks the visitor's IP up in a bundled offline country database (`geoip-country`; the IP is not stored). Behind a proxy, set `TRUST_PROXY=1` so the real visitor IP is used; without it every visit shows the proxy's address and the country is Unknown. Clicks recorded before this change keep an empty country (their IPs were never stored). The database is updated by upgrading the package.
 7. **Several instances:** the slug cache and the password limiter are per process. After a `PATCH` or `DELETE`, other instances can serve the old link for up to `SLUG_CACHE_TTL_SECONDS`. Lower it, or set it to `0`, if links must change everywhere at once.
 8. **Manual database edits:** the cache only learns about changes made through the API. After editing `links` rows with SQL, wait for the TTL or restart the server.
 9. **Short domain routing:** the proxy must send `/:slug` and `POST /:slug` to Node. If the dashboard shares the domain, see the example below.

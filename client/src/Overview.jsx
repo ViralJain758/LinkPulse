@@ -1,6 +1,6 @@
 import { api, useFetch } from './api.js';
 import Analytics from './Analytics.jsx';
-import { ErrorNote } from './ui.jsx';
+import { ErrorNote, ExportMenu } from './ui.jsx';
 import { fmt } from './format.js';
 
 export default function Overview({ range, onOpenLink }) {
@@ -12,6 +12,7 @@ export default function Overview({ range, onOpenLink }) {
 
   return (
     <div className={loading ? 'dim' : undefined}>
+      <div className="page-head"><h1>Overview</h1><ExportMenu range={range} /></div>
       <Analytics stats={data} range={range} facts={[['Links', fmt(data.totalLinks)]]}>
         <section className="wide">
           <h2>Top links</h2>

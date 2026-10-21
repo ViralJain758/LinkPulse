@@ -72,3 +72,17 @@ export function parseCsv(input, delimiter = detectDelimiter(input)) {
   if (field !== '' || cells.length > 0 || wasQuoted) endRecord();
   return { records };
 }
+
+// Writes rows (arrays of values) as RFC 4180 CSV, CRLF line endings, with a UTF-8 BOM so Excel
+// opens it as UTF-8. Text that starts with = + - @ (or a tab/CR) gets a leading apostrophe so a
+// spreadsheet never runs it as a formula; numbers are written as they are.
+export function toCsv(rows) {
+  const cell = (v) => {
+    if (v == null) return '';
+    if (typeof v === 'number') return String(v);
+    let s = v instanceof Date ? v.toISOString() : String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return '﻿' + rows.map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+}

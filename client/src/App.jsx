@@ -4,6 +4,8 @@ import Login, { Logo } from './Login.jsx';
 import Overview from './Overview.jsx';
 import LinksPage from './LinksPage.jsx';
 import LinkDetail from './LinkDetail.jsx';
+import Compare from './Compare.jsx';
+import Funnel from './Funnel.jsx';
 import { RangeTabs } from './ui.jsx';
 
 export default function App() {
@@ -28,14 +30,19 @@ export default function App() {
   const openLink = (link) => setView({ name: 'link', link });
   const tab = view.name === 'link' ? 'links' : view.name;
   const showRange = view.name !== 'links';
+  const nav = (name, label) => (
+    <button className={tab === name ? 'on' : ''} onClick={() => setView({ name })}>{label}</button>
+  );
 
   return (
     <div className="shell">
       <header className="topbar">
         <div className="brand"><Logo /> LinkPulse</div>
         <nav aria-label="Main">
-          <button className={tab === 'overview' ? 'on' : ''} onClick={() => setView({ name: 'overview' })}>Overview</button>
-          <button className={tab === 'links' ? 'on' : ''} onClick={() => setView({ name: 'links' })}>Links</button>
+          {nav('overview', 'Overview')}
+          {nav('links', 'Links')}
+          {nav('compare', 'Compare')}
+          {nav('funnel', 'Funnel')}
         </nav>
         <div className="spacer" />
         {showRange && <RangeTabs value={range} onChange={setRange} />}
@@ -45,6 +52,8 @@ export default function App() {
       <main className="page">
         {view.name === 'overview' && <Overview range={range} onOpenLink={openLink} />}
         {view.name === 'links' && <LinksPage onOpenLink={openLink} />}
+        {view.name === 'compare' && <Compare range={range} onOpenLink={openLink} />}
+        {view.name === 'funnel' && <Funnel range={range} />}
         {view.name === 'link' && <LinkDetail link={view.link} range={range} onBack={() => setView({ name: 'links' })} />}
       </main>
     </div>

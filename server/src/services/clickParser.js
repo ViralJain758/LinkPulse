@@ -1,12 +1,27 @@
 import { createHmac } from 'node:crypto';
 import { UAParser } from 'ua-parser-js';
+import geoip from 'geoip-country';
+import { isbot } from 'isbot';
 import { config } from '../config.js';
 
-const BOT_REGEX =
-  /bot|crawl|spider|slurp|facebookexternalhit|whatsapp|telegram|preview|curl|wget|python-requests|headless|monitor|uptime/i;
+// Bots, crawlers, link-preview fetchers and HTTP libraries are recognised by `isbot`, which tracks a
+// community-maintained list of crawler user agents. Upgrading the package updates the list.
 
-// Country comes from the CDN/host when there is one; there is no GeoIP database bundled.
+// Country comes from the CDN/host header when there is one. Without a CDN it is looked up from the
+// visitor's IP in a bundled, offline country database (geoip-country): the IP is used for this
+// lookup and then discarded, only the 2-letter country is kept. Private/local addresses (localhost,
+// 192.168.x.x) have no country, so local testing still shows "Unknown".
 const COUNTRY_HEADERS = ['cf-ipcountry', 'x-vercel-ip-country', 'cloudfront-viewer-country'];
+
+export function countryFromIp(ip) {
+  if (!ip) return null;
+  try {
+    const code = geoip.lookup(String(ip).replace(/^::ffff:/i, ''))?.country;
+    return /^[A-Z]{2}$/.test(code || '') ? code : null;
+  } catch {
+    return null;
+  }
+}
 
 export function parseCountry(req) {
   for (const name of COUNTRY_HEADERS) {
@@ -14,7 +29,7 @@ export function parseCountry(req) {
     // XX = Cloudflare "unknown", T1 = Tor
     if (/^[A-Z]{2}$/.test(value) && value !== 'XX' && value !== 'T1') return value;
   }
-  return null;
+  return countryFromIp(req.ip);
 }
 
 // Stores only the hostname of the referrer (no path or query string, which can hold
@@ -32,7 +47,7 @@ export function parseReferrer(req) {
 
 export function parseUserAgent(uaString) {
   const ua = String(uaString || '');
-  if (!ua || BOT_REGEX.test(ua)) return { isBot: true };
+  if (!ua || isbot(ua)) return { isBot: true };
 
   const { browser, os, device } = new UAParser(ua).getResult();
   let deviceType = 'desktop';

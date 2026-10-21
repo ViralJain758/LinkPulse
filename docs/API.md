@@ -295,3 +295,13 @@ curl -X POST localhost:4000/api/links -H "Authorization: Bearer $TOKEN" -H 'Cont
 
 curl -i -X POST -d password=hunter22 localhost:4000/demo     # 303 -> https://example.com
 ```
+
+
+### `GET /api/stats/compare?ids=1,2,3&range=30d&tz=...`
+Compares 2 to 5 of your links. Returns `buckets` (shared x axis) and `links[]` with `id`, `slug`, `totalClicks`, `uniqueVisitors` and a zero-filled `timeseries` of `{ bucket, clicks, uniqueVisitors }`. `404` if any id is not yours.
+
+### `GET /api/stats/funnel?range=30d&tz=...&link=ID`
+`steps[]` of `clicks`, `visitors`, `returning` (2+ clicks) and `loyal` (3+ clicks). Omit `link` for all links.
+
+### `GET /api/stats/export?kind=timeseries|clicks&range=30d&tz=...&ids=1,2`
+CSV download (UTF-8 with BOM, spreadsheet-formula safe). `timeseries`: `date,time,time_zone,slug,clicks,unique_visitors` (one row per link per hour or day; `time` is the start of the period). `clicks`: `date,time,time_zone,slug,referrer,source,device,browser,os,country_code,country`, newest first, max 50,000 rows; IP hashes are never exported. `ids` is optional (all links).
