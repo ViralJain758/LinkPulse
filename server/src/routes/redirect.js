@@ -7,6 +7,7 @@ import { isBlocked, recordFailure, clearFailures } from '../services/rateLimit.j
 import { getCached, setCached, currentEpoch, slugKey } from '../services/slugCache.js';
 import { resolveDomainId } from '../services/domainLookup.js';
 import { resolveDestination } from '../services/routing.js';
+import { detectTriggeredAlerts, triggerLinkAlerts } from '../services/linkAlerts.js';
 
 const router = Router();
 
@@ -59,7 +60,7 @@ function passwordPage(res, slug, error, status = 200, source = null) {
   );
 }
 
-const COLUMNS = 'id, target_url, routes, is_active, expires_at, password_hash, max_clicks, used_clicks';
+const COLUMNS = 'id, target_url, routes, is_active, expires_at, password_hash, max_clicks, used_clicks, webhook_url, notification_email, notify_on_clicks';
 // A slug is unique per domain: the service's own domain (domain_id NULL) or one custom domain.
 // Two statements rather than one, so each uses its own partial unique index.
 const SELECT_DEFAULT = `SELECT ${COLUMNS} FROM links WHERE slug = $1 AND domain_id IS NULL`;
@@ -113,13 +114,37 @@ function checkServable(link, res) {
 // Expiry/active are re-checked here so a link paused or expired while the password form
 // was open is not consumed or followed.
 async function consume(link) {
-  const { rowCount } = await query(
+  const previousUsedClicks = Number(link.used_clicks) || 0;
+  const { rowCount, rows } = await query(
     `UPDATE links SET used_clicks = used_clicks + 1
      WHERE id = $1 AND max_clicks IS NOT NULL AND used_clicks < max_clicks AND is_active
-       AND (expires_at IS NULL OR expires_at > now())`,
+       AND (expires_at IS NULL OR expires_at > now())
+     RETURNING used_clicks`,
     [link.id]
   );
-  return rowCount === 1;
+
+  if (rowCount !== 1) return false;
+
+  const nextUsedClicks = Number(rows[0]?.used_clicks ?? previousUsedClicks + 1) || previousUsedClicks + 1;
+  const triggered = detectTriggeredAlerts(link, previousUsedClicks, nextUsedClicks);
+  if (triggered.length > 0) {
+    const alertLink = {
+      ...link,
+      shortUrl: link.shortUrl ?? `${process.env.BASE_URL ?? 'http://localhost:4000'}/${link.slug}`,
+      targetUrl: link.target_url ?? link.targetUrl ?? null,
+      slug: link.slug,
+      maxClicks: link.max_clicks ?? link.maxClicks ?? null,
+      notifyOnClicks: link.notify_on_clicks ?? link.notifyOnClicks ?? null,
+      webhookUrl: link.webhook_url ?? link.webhookUrl ?? null,
+      notificationEmail: link.notification_email ?? link.notificationEmail ?? null,
+    };
+    await triggerLinkAlerts(alertLink, triggered, {
+      usedClicksBefore: previousUsedClicks,
+      usedClicksAfter: nextUsedClicks,
+    }).catch((err) => console.error('Link alert processing failed:', err.message));
+  }
+
+  return true;
 }
 
 function follow(link, req, res, { post }) {

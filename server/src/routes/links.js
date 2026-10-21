@@ -16,9 +16,12 @@ import {
   parseExpiry,
   parseFolderId,
   parseFolderName,
+  parseNotificationEmail,
+  parseNotifyOnClicks,
   parsePassword,
   parseSlug,
   parseTags,
+  parseWebhookUrl,
   readLimit,
 } from '../services/linkFields.js';
 import { MAX_BULK_ROWS, parseBulkCsv, splitTags, validateBulkRow } from '../services/bulkImport.js';
@@ -38,6 +41,9 @@ const toResponse = (row) => ({
   hasPassword: row.password_hash != null,
   maxClicks: row.max_clicks,
   usedClicks: row.used_clicks,
+  webhookUrl: row.webhook_url ?? null,
+  notificationEmail: row.notification_email ?? null,
+  notifyOnClicks: row.notify_on_clicks ?? [],
   tags: row.tags ?? [],
   folderId: row.folder_id ?? null,
   folderName: row.folder_name ?? null,
@@ -92,9 +98,23 @@ async function routesPointAtService(routes) {
 async function insertLink(userId, f) {
   const run = (slug) =>
     query(
-      `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, max_clicks, tags, folder_id, domain_id, routes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb) ${RETURNING_LINK}`,
-      [userId, slug, f.url, f.expiresAt ?? null, f.passwordHash ?? null, f.maxClicks ?? null, f.tags ?? [], f.folderId ?? null, f.domainId ?? null, JSON.stringify(f.routes ?? [])]
+      `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, max_clicks, webhook_url, notification_email, notify_on_clicks, tags, folder_id, domain_id, routes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb) ${RETURNING_LINK}`,
+      [
+        userId,
+        slug,
+        f.url,
+        f.expiresAt ?? null,
+        f.passwordHash ?? null,
+        f.maxClicks ?? null,
+        f.webhookUrl ?? null,
+        f.notificationEmail ?? null,
+        f.notifyOnClicks ?? [],
+        f.tags ?? [],
+        f.folderId ?? null,
+        f.domainId ?? null,
+        JSON.stringify(f.routes ?? []),
+      ]
     );
 
   if (f.slug) {
@@ -132,6 +152,13 @@ router.post('/', async (req, res, next) => {
     const limit = readLimit(req.body);
     if (limit.error) return res.status(400).json({ error: limit.error });
 
+    const webhook = parseWebhookUrl(req.body?.webhookUrl);
+    if (webhook.error) return res.status(400).json({ error: webhook.error });
+    const email = parseNotificationEmail(req.body?.notificationEmail);
+    if (email.error) return res.status(400).json({ error: email.error });
+    const milestones = parseNotifyOnClicks(req.body?.notifyOnClicks);
+    if (milestones.error) return res.status(400).json({ error: milestones.error });
+
     const slug = parseSlug(req.body?.slug);
     if (slug.error) return res.status(400).json({ error: slug.error });
 
@@ -160,6 +187,9 @@ router.post('/', async (req, res, next) => {
       expiresAt: expiry.value,
       passwordHash: pw.value ? await bcrypt.hash(pw.value, 10) : null,
       maxClicks: limit.value,
+      webhookUrl: webhook.value,
+      notificationEmail: email.value,
+      notifyOnClicks: milestones.value,
       tags: tags.value,
       folderId: folder.value,
       domainId: domain.value,
@@ -477,6 +507,24 @@ router.patch('/:id', async (req, res, next) => {
       }
     }
     if (req.body?.resetClicks === true && !sets.includes('used_clicks = 0')) sets.push('used_clicks = 0');
+
+    if (req.body?.webhookUrl !== undefined) {
+      const webhook = parseWebhookUrl(req.body.webhookUrl);
+      if (webhook.error) return res.status(400).json({ error: webhook.error });
+      add('webhook_url', webhook.value);
+    }
+
+    if (req.body?.notificationEmail !== undefined) {
+      const email = parseNotificationEmail(req.body.notificationEmail);
+      if (email.error) return res.status(400).json({ error: email.error });
+      add('notification_email', email.value);
+    }
+
+    if (req.body?.notifyOnClicks !== undefined) {
+      const milestones = parseNotifyOnClicks(req.body.notifyOnClicks);
+      if (milestones.error) return res.status(400).json({ error: milestones.error });
+      add('notify_on_clicks', milestones.value);
+    }
 
     if (req.body?.tags !== undefined) {
       const tags = parseTags(req.body.tags);

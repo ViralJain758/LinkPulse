@@ -28,6 +28,44 @@ export function parsePassword(input) {
   return { value: input };
 }
 
+export function parseWebhookUrl(input) {
+  if (input === undefined || input === null || input === '') return { value: null };
+  if (typeof input !== 'string') return { error: 'webhookUrl must be a string' };
+  let parsed;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return { error: 'webhookUrl is not valid' };
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return { error: 'webhookUrl must use http or https' };
+  }
+  return { value: parsed.toString() };
+}
+
+export function parseNotificationEmail(input) {
+  if (input === undefined || input === null || input === '') return { value: null };
+  if (typeof input !== 'string') return { error: 'notificationEmail must be a string' };
+  const email = input.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: 'notificationEmail is not valid' };
+  }
+  return { value: email };
+}
+
+export function parseNotifyOnClicks(input) {
+  if (input === undefined || input === null || input === '') return { value: [] };
+  const values = Array.isArray(input) ? input : [input];
+  const out = [];
+  for (const item of values) {
+    if (!Number.isInteger(item) || item < 1 || item > MAX_CLICK_LIMIT) {
+      return { error: `notifyOnClicks values must be whole numbers from 1 to ${MAX_CLICK_LIMIT.toLocaleString('en-US')}` };
+    }
+    if (!out.includes(item)) out.push(item);
+  }
+  return { value: out.sort((a, b) => a - b) };
+}
+
 // Returns { value: integer|null } or { error }. null/'' means "no limit".
 export function parseMaxClicks(input) {
   if (input === undefined || input === null || input === '') return { value: null };

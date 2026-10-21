@@ -8,20 +8,26 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS links (
-  id            BIGSERIAL PRIMARY KEY,
-  user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  slug          TEXT NOT NULL,              -- v6: unique per domain (see the indexes below)
-  target_url    TEXT NOT NULL,
-  password_hash TEXT,                       -- v3: protected links
-  max_clicks    INTEGER CHECK (max_clicks > 0), -- v4: NULL = unlimited, 1 = one-time
-  used_clicks   INTEGER NOT NULL DEFAULT 0,     -- v4: visits that have consumed the limit
-  expires_at    TIMESTAMPTZ,
-  is_active     BOOLEAN NOT NULL DEFAULT true,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                BIGSERIAL PRIMARY KEY,
+  user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  slug              TEXT NOT NULL,              -- v6: unique per domain (see the indexes below)
+  target_url        TEXT NOT NULL,
+  password_hash     TEXT,                       -- v3: protected links
+  max_clicks        INTEGER CHECK (max_clicks > 0), -- v4: NULL = unlimited, 1 = one-time
+  used_clicks       INTEGER NOT NULL DEFAULT 0,     -- v4: visits that have consumed the limit
+  webhook_url       TEXT,
+  notification_email TEXT,
+  notify_on_clicks  INTEGER[] NOT NULL DEFAULT '{}',
+  expires_at        TIMESTAMPTZ,
+  is_active         BOOLEAN NOT NULL DEFAULT true,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- Existing databases: safe to re-run
 ALTER TABLE links ADD COLUMN IF NOT EXISTS max_clicks  INTEGER CHECK (max_clicks > 0);
 ALTER TABLE links ADD COLUMN IF NOT EXISTS used_clicks INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE links ADD COLUMN IF NOT EXISTS webhook_url TEXT;
+ALTER TABLE links ADD COLUMN IF NOT EXISTS notification_email TEXT;
+ALTER TABLE links ADD COLUMN IF NOT EXISTS notify_on_clicks INTEGER[] NOT NULL DEFAULT '{}';
 
 -- v4 replaced one_time/used_at with max_clicks/used_clicks. Carry existing one-time links
 -- over (a used one keeps its "used" state), then drop the old columns. Runs only once.

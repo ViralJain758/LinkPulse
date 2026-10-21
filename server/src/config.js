@@ -33,6 +33,13 @@ export const config = {
   // In-memory cache of slug lookups for the redirect. 0 seconds disables it.
   slugCacheTtlSeconds: parseCount(process.env.SLUG_CACHE_TTL_SECONDS, 60),
   slugCacheMax: parseCount(process.env.SLUG_CACHE_MAX, 1000),
+  // Optional SMTP transport for link notifications. If not configured, webhook alerts still work.
+  smtpHost: process.env.SMTP_HOST || '',
+  smtpPort: Number(process.env.SMTP_PORT) || 587,
+  smtpSecure: (process.env.SMTP_SECURE || 'false').toLowerCase() === 'true',
+  smtpUser: process.env.SMTP_USER || '',
+  smtpPass: process.env.SMTP_PASS || '',
+  notificationFromEmail: process.env.NOTIFICATION_FROM_EMAIL || process.env.SMTP_USER || '',
   // What users should point their custom domain at (a CNAME target or an IP address).
   // Defaults to the host of BASE_URL.
   customDomainTarget: (process.env.CUSTOM_DOMAIN_TARGET || '').trim().toLowerCase(),
