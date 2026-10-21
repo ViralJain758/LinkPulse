@@ -6,12 +6,41 @@ Link and user ids are returned as strings (Postgres `BIGINT`).
 
 ## Auth
 
+Sign-in gives an **access token** (a JWT, 15 minutes by default) and a **refresh token** (opaque, 30 days, renewed on use). Send the access token as `Authorization: Bearer <accessToken>`. Both are tied to a server-side session, so signing out, resetting a password or a replayed refresh token ends them immediately, not when they expire.
+
+Session responses look like `{ "user": { "id", "email", "emailVerified" }, "accessToken", "refreshToken", "expiresIn" }` (seconds). `token` is the same as `accessToken`, kept for older clients.
+
+A `401` on an authenticated call has a `code`: `token_expired` (call `/refresh` and repeat the request) or `session_ended` (sign in again). `403` with `email_not_verified` means the server requires a confirmed email.
+
 ### `POST /api/auth/register`
-Body: `{ "email", "password" }` (password min 8 chars).
-`201` → `{ "user": { "id", "email" }, "token" }`. `409` if the email exists.
+Body: `{ "email", "password" }` (8 characters to 72 bytes). `201` → a session. If the server has `REQUIRE_EMAIL_VERIFICATION=true`: `201` → `{ "user", "verificationRequired": true }` and no session until the emailed link is used. `409` if the email exists. A confirmation email is sent either way.
 
 ### `POST /api/auth/login`
-Body: `{ "email", "password" }`. `200` → `{ "user", "token" }`. `401` on bad credentials.
+Body: `{ "email", "password" }`. `200` → a session. `401` on bad credentials, `403 email_not_verified` when verification is required, `429` after 5 failed attempts for the same IP and email within 15 minutes.
+
+### `POST /api/auth/refresh`
+Body: `{ "refreshToken" }`. `200` → a new session payload; **the old refresh token stops working**, store the new one. `401 session_ended` if the token is unknown, expired or its session was revoked. Presenting an already-used refresh token more than 10 seconds after it was replaced is treated as theft and revokes the session. Within those 10 seconds the answer is `401 refresh_race` (two tabs refreshing together): retry with the token the other one saved.
+
+### `POST /api/auth/logout`, `POST /api/auth/logout-all` *(auth)*
+End the current session, or every session of the user. `204`.
+
+### `GET /api/auth/me` *(auth)*
+`{ "user": { "id", "email", "emailVerified" } }`.
+
+### `POST /api/auth/change-password` *(auth)*
+Body: `{ "currentPassword", "newPassword" }`. Signs out every *other* session. `200 { "ok": true }`. `400 wrong_password` if the current password is wrong (5 failures per 15 minutes, then `429`).
+
+### `POST /api/auth/forgot-password`
+Body: `{ "email" }`. Always `202`, whether or not the account exists. Emails a one-hour, single-use link `CLIENT_ORIGIN/?reset=<token>`; a newer link cancels older ones. At most 3 emails per address and 20 requests per IP per hour (beyond 3 per address the answer is still `202` but nothing is sent).
+
+### `POST /api/auth/reset-password`
+Body: `{ "token", "password" }`. `200 { "ok": true }`, sets the password, marks the email verified and **signs out every session**. `400 invalid_token` if the link is unknown, used or expired.
+
+### `POST /api/auth/verify-email`
+Body: `{ "token" }` from the emailed link `CLIENT_ORIGIN/?verify=<token>` (24 hours, single use). `200 { "ok": true, "email" }` or `400 invalid_token`.
+
+### `POST /api/auth/resend-verification`
+Body: `{ "email" }`. Always `202`; sends a new link only if the account exists and is unverified. Same limits as forgot-password.
 
 ## Links (auth required)
 

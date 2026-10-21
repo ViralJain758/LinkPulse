@@ -6,7 +6,7 @@ Please do **not** open a public issue. Report privately through GitHub's "Report
 
 ## Security model
 
-- **Accounts:** passwords hashed with bcrypt (cost 10). Sessions are JWTs (HS256, 7-day expiry) signed with `JWT_SECRET`. There is no token revocation yet.
+- **Accounts:** passwords hashed with bcrypt (cost 10). Each login creates a server-side session. The access token is a short-lived JWT (HS256, 15 minutes) carrying the session id and is checked against that session on every request, so signing out, a password change or reset, or `logout-all` takes effect at once. The refresh token (30 days, sliding) is random, stored only as a SHA-256 hash and **rotated on every use**; replaying a used one revokes the session. Password reset and email confirmation links are random, single-use, stored hashed, and expire in 1 hour / 24 hours; `forgot-password` and `resend-verification` answer identically whether or not the account exists and are rate limited, and login is limited to 5 failures per IP and email per 15 minutes (in memory, per process). Resetting a password signs out every device and emails a notice.
 - **Link passwords:** bcrypt-hashed, 4-72 bytes. Wrong guesses are limited to 5 per visitor IP and slug per 15 minutes (in memory, per process).
 - **Slug cache:** the redirect serves unlimited links from a short-lived in-memory cache. Pausing, deleting or changing the password of a link takes effect immediately on the server that handled the change; with several instances the others can serve the previous version for up to `SLUG_CACHE_TTL_SECONDS` (60 by default). Set it to `0` if you need immediate revocation across instances. Click-limited links are never cached, so limits are always enforced against the database.
 - **Click limits (including one-time links):** consumed with a single atomic `UPDATE`, so concurrent visitors cannot exceed the limit.
@@ -29,4 +29,4 @@ Please do **not** open a public issue. Report privately through GitHub's "Report
 
 ## Known gaps
 
-No password reset, email verification, token revocation, rate limiting on login/registration, or re-checking destinations after a link is saved.
+No rate limiting on registration, no multi-factor auth, no list of active sessions in the dashboard, and no re-checking of destinations after a link is saved. Tokens are still kept in `localStorage` (readable by any script on the dashboard origin, see `docs/ARCHITECTURE.md`); the refresh token is the more sensitive of the two. Email changes are not supported yet. The auth rate limits are per process, so with several instances the effective limits are multiplied.

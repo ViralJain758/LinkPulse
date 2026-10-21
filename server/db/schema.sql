@@ -104,3 +104,37 @@ CREATE INDEX IF NOT EXISTS idx_clicks_link_time ON clicks(link_id, clicked_at);
 -- "url": "..." }]; the first rule that matches a visitor replaces target_url for that visit.
 -- Deploy this together with the server: the redirect now selects this column.
 ALTER TABLE links ADD COLUMN IF NOT EXISTS routes JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- v8: auth. Sessions make logins revocable; auth_tokens carry one-time email-verification and
+-- password-reset links. Only SHA-256 hashes of refresh/email tokens are stored.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;  -- NULL = not verified yet
+
+-- One row per login. The access token (a short-lived JWT) carries this id as `sid` and is only
+-- accepted while the row is live. The refresh token is rotated on every use; the previous one is
+-- remembered so that replaying it (a stolen token) revokes the whole session.
+CREATE TABLE IF NOT EXISTS sessions (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  refresh_hash      TEXT NOT NULL,
+  prev_refresh_hash TEXT,
+  rotated_at        TIMESTAMPTZ,
+  user_agent        TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at        TIMESTAMPTZ NOT NULL,
+  revoked_at        TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_refresh ON sessions(refresh_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev ON sessions(prev_refresh_hash) WHERE prev_refresh_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  id         BIGSERIAL PRIMARY KEY,
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('verify_email', 'reset_password')),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id, kind);

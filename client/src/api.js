@@ -14,27 +14,71 @@ export function getSession() {
 export const saveSession = (s) => localStorage.setItem(SESSION_KEY, JSON.stringify(s));
 export const clearSession = () => localStorage.removeItem(SESSION_KEY);
 
-// App registers this so any 401 on an authenticated call signs the user out.
+// App registers this so a session that can no longer be renewed signs the user out.
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
 
-// `body` is sent as JSON; `csv` is sent as text/csv (bulk import)
-async function request(path, { method = 'GET', body, csv } = {}) {
+// Swaps the refresh token for a new access token. One refresh at a time per tab; if another tab
+// rotated the token first, the server says "refresh_race" and we retry with what that tab saved.
+// Resolves to the new session, or null when the refresh token is no longer good. A network
+// error throws instead, so a dropped connection never signs anyone out.
+let refreshing = null;
+function refreshSession() {
+  refreshing ??= (async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = getSession();
+      if (!current?.refreshToken) return null;
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: current.refreshToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const next = { ...current, token: data.accessToken, refreshToken: data.refreshToken, user: data.user };
+        saveSession(next);
+        return next;
+      }
+      if (data.code !== 'refresh_race') return null;
+      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+    }
+    return null;
+  })().finally(() => (refreshing = null));
+  return refreshing;
+}
+
+// fetch with the access token. An expired token is renewed once and the call repeated.
+async function authedFetch(url, init = {}) {
+  const send = (token) =>
+    fetch(url, { ...init, headers: { ...init.headers, ...(token && { Authorization: `Bearer ${token}` }) } });
   const token = getSession()?.token;
-  const res = await fetch(`/api${path}`, {
+  let res = await send(token);
+  if (res.status === 401 && token) {
+    const { code } = await res.clone().json().catch(() => ({}));
+    const fresh = code === 'session_ended' ? null : await refreshSession();
+    if (fresh) res = await send(fresh.token);
+    if (!fresh || res.status === 401) onUnauthorized();
+  }
+  return res;
+}
+
+// `body` is sent as JSON; `csv` is sent as text/csv (bulk import); `auth: false` for public endpoints
+async function request(path, { method = 'GET', body, csv, auth = true } = {}) {
+  const init = {
     method,
     headers: {
       ...(body && { 'Content-Type': 'application/json' }),
       ...(csv !== undefined && { 'Content-Type': 'text/csv; charset=utf-8' }),
-      ...(token && { Authorization: `Bearer ${token}` }),
     },
     body: csv !== undefined ? csv : body ? JSON.stringify(body) : undefined,
-  });
+  };
+  const res = await (auth ? authedFetch : fetch)(`/api${path}`, init);
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && token) onUnauthorized();
-    throw new Error(data.error || `Request failed (${res.status})`);
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    err.code = data.code;
+    throw err;
   }
   return data;
 }
@@ -42,11 +86,9 @@ async function request(path, { method = 'GET', body, csv } = {}) {
 // CSV downloads need the auth header, so fetch the file and save it from a blob.
 // kind: 'timeseries' (clicks per period per link) | 'clicks' (one row per click); ids: optional link ids
 export async function downloadExport({ kind, range, ids = [] }) {
-  const token = getSession()?.token;
   const qs = new URLSearchParams({ kind, range, tz: timeZone, ...(ids.length && { ids: ids.join(',') }) });
-  const res = await fetch(`/api/stats/export?${qs}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await authedFetch(`/api/stats/export?${qs}`);
   if (!res.ok) {
-    if (res.status === 401 && token) onUnauthorized();
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `Export failed (${res.status})`);
   }
@@ -59,8 +101,14 @@ export async function downloadExport({ kind, range, ids = [] }) {
 }
 
 export const api = {
-  login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
-  register: (email, password) => request('/auth/register', { method: 'POST', body: { email, password } }),
+  login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password }, auth: false }),
+  register: (email, password) => request('/auth/register', { method: 'POST', body: { email, password }, auth: false }),
+  // Ends this session on the server (best effort: the caller signs out locally either way)
+  logout: () => request('/auth/logout', { method: 'POST' }),
+  forgotPassword: (email) => request('/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),
+  resetPassword: (token, password) => request('/auth/reset-password', { method: 'POST', body: { token, password }, auth: false }),
+  verifyEmail: (token) => request('/auth/verify-email', { method: 'POST', body: { token }, auth: false }),
+  resendVerification: (email) => request('/auth/resend-verification', { method: 'POST', body: { email }, auth: false }),
   // filters: { folder: id | 'none', domain: id | 'none', tag, q } (all optional)
   links: (filters = {}) => {
     const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();

@@ -16,9 +16,15 @@
 | `SAFE_BROWSING_API_KEY` | no | off | Google Safe Browsing API key. When set, destination URLs are checked when a link is created or edited and listed phishing/malware sites are refused. Create a key in Google Cloud with the Safe Browsing API enabled |
 | `SAFE_BROWSING_TIMEOUT_MS` | no | `3000` | How long to wait for Google before treating the check as failed |
 | `SAFE_BROWSING_FAIL_CLOSED` | no | `false` | `false`: links are saved if Safe Browsing can't be reached (the error is logged). `true`: they are refused with `503` until it works again |
+| `ACCESS_TOKEN_TTL_MINUTES` | no | `15` | Lifetime of an access token. A revoked session stops working immediately regardless; this only bounds how often clients refresh |
+| `REFRESH_TOKEN_TTL_DAYS` | no | `30` | A session ends after this many days without a refresh (each refresh extends it) |
+| `REQUIRE_EMAIL_VERIFICATION` | no | `false` | `true`: sign-in is refused until the emailed link is opened. The server refuses to start without SMTP settings. Existing accounts are unverified, see the note below |
+| `AUTH_FROM_EMAIL` | no | `NOTIFICATION_FROM_EMAIL` | Sender of verification and password-reset emails (uses the `SMTP_*` settings). Links point at `CLIENT_ORIGIN`, which must be the dashboard's public URL |
 | `CUSTOM_DOMAIN_TARGET` | no | host of `BASE_URL` | What users are told to point their custom domain at: a host name for a CNAME, or an IP address. Set it when the public host differs from `BASE_URL`, for example a dedicated `cname.sho.rt` |
 
 Node 20.6+ is required (`--env-file`).
+
+**Upgrading to the session-based auth (v8).** Run `server/db/schema.sql` together with the new server. **Everyone is signed out once**: old 7-day tokens carry no session and are refused, which is how they become revocable. Without SMTP, reset and confirmation links are printed to the server console (never in `NODE_ENV=production`), so set up SMTP before relying on password reset. To turn on `REQUIRE_EMAIL_VERIFICATION` without locking out existing users, mark them confirmed first: `UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL;`.
 
 ## Database
 

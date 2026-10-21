@@ -88,11 +88,11 @@ Each click records the referrer **hostname** only, a `source` tag (`qr` when the
 
 ## Client
 
-Vite + React, no router: `App.jsx` switches between Overview, Links and Link detail. The Links page filters through the API (`folder`, `tag`, `q`) and polls like the stats pages; the CSV import dialog first calls the bulk endpoint with `dryRun=true` to show what would happen, then repeats the call to create the links. `api.js` wraps `fetch` with the stored JWT and signs the user out on any 401. `useFetch` loads data, refetches on dependency changes and polls every 30 seconds. QR codes are generated client-side (`qrcode` package).
+Vite + React, no router: `App.jsx` switches between Overview, Links and Link detail. The Links page filters through the API (`folder`, `tag`, `q`) and polls like the stats pages; the CSV import dialog first calls the bulk endpoint with `dryRun=true` to show what would happen, then repeats the call to create the links. `api.js` wraps `fetch` with the stored access token; on a 401 it renews the token once with the refresh token (one refresh at a time, tolerating another tab rotating it first) and repeats the call, and signs the user out only when the session can no longer be renewed. Emailed links open the dashboard as `/?verify=` or `/?reset=`; `App.jsx` reads and strips them at load. `useFetch` loads data, refetches on dependency changes and polls every 30 seconds. QR codes are generated client-side (`qrcode` package).
 
 ## Design decisions worth knowing
 
-- JWT in `localStorage`: simple, but exposed to XSS. Consider httpOnly cookies if you add untrusted content to the dashboard.
+- Access and refresh tokens in `localStorage`: simple, but exposed to XSS. Consider httpOnly cookies if you add untrusted content to the dashboard.
 - Server-rendered HTML for gate/error pages so they work without the dashboard and from any device.
 - No ORM: plain SQL through `pg`.
 - Slug cache in process memory rather than Redis: no new infrastructure and no network hop on the hot path. The cost is the per-instance staleness window described above. A shared cache is the next step if you scale out.

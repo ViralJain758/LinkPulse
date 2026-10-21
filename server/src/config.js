@@ -47,5 +47,18 @@ export const config = {
   safeBrowsingTimeoutMs: parseCount(process.env.SAFE_BROWSING_TIMEOUT_MS, 3000) || 3000,
   // true = refuse to save links while Safe Browsing can't be reached; false = allow them.
   safeBrowsingFailClosed: (process.env.SAFE_BROWSING_FAIL_CLOSED || 'false').toLowerCase() === 'true',
+  nodeEnv: process.env.NODE_ENV || 'development',
+  // Auth: access tokens are short-lived JWTs; the refresh token (30 days, sliding) renews them.
+  accessTokenTtlMinutes: parseCount(process.env.ACCESS_TOKEN_TTL_MINUTES, 15) || 15,
+  refreshTokenTtlDays: parseCount(process.env.REFRESH_TOKEN_TTL_DAYS, 30) || 30,
+  // true = people must confirm their email before they can sign in. Needs SMTP.
+  requireEmailVerification: (process.env.REQUIRE_EMAIL_VERIFICATION || 'false').toLowerCase() === 'true',
+  // Sender for verification and password-reset emails. Defaults to the notification sender.
+  authFromEmail: process.env.AUTH_FROM_EMAIL || process.env.NOTIFICATION_FROM_EMAIL || process.env.SMTP_USER || '',
   customDomainTarget: (process.env.CUSTOM_DOMAIN_TARGET || '').trim().toLowerCase(),
 };
+
+// Locking everyone out because no mail can be sent is worse than failing at startup.
+if (config.requireEmailVerification && (!config.smtpHost || !config.authFromEmail)) {
+  throw new Error('REQUIRE_EMAIL_VERIFICATION=true needs SMTP_HOST and AUTH_FROM_EMAIL (or NOTIFICATION_FROM_EMAIL)');
+}
