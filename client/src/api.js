@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 const SESSION_KEY = 'linkpulse.session';
+const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const apiUrl = (path) => `${API_URL}/api${path}`;
 
 export const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
@@ -28,7 +30,7 @@ function refreshSession() {
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = getSession();
       if (!current?.refreshToken) return null;
-      const res = await fetch('/api/auth/refresh', {
+      const res = await fetch(apiUrl('/auth/refresh'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: current.refreshToken }),
@@ -72,7 +74,7 @@ async function request(path, { method = 'GET', body, csv, auth = true } = {}) {
     },
     body: csv !== undefined ? csv : body ? JSON.stringify(body) : undefined,
   };
-  const res = await (auth ? authedFetch : fetch)(`/api${path}`, init);
+  const res = await (auth ? authedFetch : fetch)(apiUrl(path), init);
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -87,7 +89,7 @@ async function request(path, { method = 'GET', body, csv, auth = true } = {}) {
 // kind: 'timeseries' (clicks per period per link) | 'clicks' (one row per click); ids: optional link ids
 export async function downloadExport({ kind, range, ids = [] }) {
   const qs = new URLSearchParams({ kind, range, tz: timeZone, ...(ids.length && { ids: ids.join(',') }) });
-  const res = await authedFetch(`/api/stats/export?${qs}`);
+  const res = await authedFetch(apiUrl(`/stats/export?${qs}`));
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `Export failed (${res.status})`);

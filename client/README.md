@@ -8,7 +8,7 @@ npm run dev        # http://localhost:5173
 npm run build      # outputs dist/
 ```
 
-Start the server first (port 4000). The dev server proxies `/api` to `http://localhost:4000`; set `VITE_API_TARGET` if yours runs elsewhere. The server's `CLIENT_ORIGIN` (default `http://localhost:5173`) already matches.
+Start the server first (port 4000). `client/.env` stores the server URL in `VITE_API_URL`; copy `.env.example` when setting up another environment. Leave `VITE_API_URL` empty when the dashboard is served from the same origin. The Vite dev server proxies `/api` to `http://localhost:4000`; set `VITE_API_TARGET` if you use the proxy fallback instead. A separate client origin must be included in the server's `CLIENT_ORIGIN`.
 
 ## Screens
 
