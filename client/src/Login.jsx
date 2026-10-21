@@ -25,11 +25,13 @@ export default function Login({ onAuth }) {
   }
 
   return (
+    <div className="auth-wrap">
     <main className="auth">
       <div className="brand big-brand">
         <Logo /> LinkPulse
       </div>
-      <h1>See who clicks your links.</h1>
+      <h1>{mode === 'login' ? 'Welcome back.' : 'See who clicks your links.'}</h1>
+      <p className="muted auth-sub">{mode === 'login' ? 'Sign in to your dashboard.' : 'Create a free account to start shortening links.'}</p>
       <form onSubmit={submit}>
         <label>
           Email
@@ -52,13 +54,14 @@ export default function Login({ onAuth }) {
           {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
         </button>
       </form>
-      <p className="muted">
+      <p className="muted auth-foot">
         {mode === 'login' ? 'New here? ' : 'Already have an account? '}
         <button className="link-btn" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>
           {mode === 'login' ? 'Create an account' : 'Sign in'}
         </button>
       </p>
     </main>
+    </div>
   );
 }
 
@@ -66,7 +69,7 @@ export function Logo() {
   return (
     <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" rx="8" fill="var(--accent)" />
-      <path d="M4 17h6l3-8 5 15 3-7h7" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 17h6l3-8 5 15 3-7h7" fill="none" stroke="#0b0820" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

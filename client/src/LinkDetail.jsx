@@ -9,7 +9,7 @@ export default function LinkDetail({ link, range, onBack }) {
   return (
     <>
       <button className="link-btn back" onClick={onBack}>
-        Back to links
+        ← Back to links
       </button>
       <div className="detail-head">
         <h1>/{link.slug}</h1>
@@ -20,7 +20,7 @@ export default function LinkDetail({ link, range, onBack }) {
       {error && !data ? (
         <ErrorNote message={error} onRetry={reload} />
       ) : !data ? (
-        <p className="muted">Loading stats…</p>
+        <div className="skeleton" aria-label="Loading stats" />
       ) : (
         <div className={loading ? 'dim' : undefined}>
           <Analytics stats={data} range={range} />

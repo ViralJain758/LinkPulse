@@ -8,7 +8,7 @@ export default function Overview({ range, onOpenLink }) {
   const { data, error, loading, reload } = useFetch(() => api.overview(range), [range], 30000);
 
   if (error && !data) return <ErrorNote message={error} onRetry={reload} />;
-  if (!data) return <p className="muted">Loading your stats…</p>;
+  if (!data) return <div className="skeleton" aria-label="Loading your stats" />;
 
   return (
     <div className={loading ? 'dim' : undefined}>

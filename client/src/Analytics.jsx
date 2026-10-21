@@ -41,8 +41,8 @@ function Timeseries({ data, range }) {
             stroke="var(--accent)"
             strokeWidth={2.5}
             fill="var(--accent)"
-            fillOpacity={0.1}
-            activeDot={{ r: 5, fill: 'var(--accent)', stroke: '#fff', strokeWidth: 2 }}
+            fillOpacity={0.14}
+            activeDot={{ r: 5, fill: 'var(--accent)', stroke: '#08080a', strokeWidth: 2 }}
             isAnimationActive={false}
           />
         </AreaChart>
@@ -70,7 +70,7 @@ export default function Analytics({ stats, range, facts = [], children }) {
         <div className="hero-head">
           <div>
             <div className="big">{fmt(totalClicks)}</div>
-            <p className="muted">{totalClicks === 1 ? 'click' : 'clicks'} in {phrase}</p>
+            <p className="muted hero-label">{totalClicks === 1 ? 'click' : 'clicks'} in {phrase}</p>
           </div>
           <dl className="facts">
             {summary.map(([k, v]) => (

@@ -40,7 +40,7 @@ export default function App() {
         <div className="spacer" />
         {showRange && <RangeTabs value={range} onChange={setRange} />}
         <span className="live" title="Stats refresh every 30 seconds"><i /> Live</span>
-        <button className="link-btn" onClick={signOut} title={session.user?.email}>Sign out</button>
+        <button className="btn sm" onClick={signOut} title={session.user?.email}>Sign out</button>
       </header>
       <main className="page">
         {view.name === 'overview' && <Overview range={range} onOpenLink={openLink} />}

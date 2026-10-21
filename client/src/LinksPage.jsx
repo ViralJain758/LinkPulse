@@ -65,10 +65,17 @@ function CreateForm({ folders, domains, onCreated }) {
 
   return (
     <form className="create" onSubmit={submit}>
-      <label className="grow">
-        Destination URL
-        <input type="url" placeholder="https://example.com/a-long-page" value={url} onChange={(e) => setUrl(e.target.value)} required />
-      </label>
+      <div className="create-main">
+        <label>
+          Destination URL
+          <input type="url" placeholder="https://example.com/a-long-page" value={url} onChange={(e) => setUrl(e.target.value)} required />
+        </label>
+        <button className="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
+      </div>
+      {error && <p className="error full" role="alert">{error}</p>}
+      <details className="create-more">
+        <summary>More options</summary>
+        <div className="create-fields">
       <label>
         Custom slug (optional)
         <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="spring-sale" pattern="[A-Za-z0-9_\-]{3,32}" title="3-32 characters: letters, numbers, - or _" />
@@ -89,8 +96,8 @@ function CreateForm({ folders, domains, onCreated }) {
       <FolderSelect folders={folders} value={folderId} onChange={setFolderId} />
       <DomainSelect domains={domains} value={domainId} onChange={setDomainId} />
       <RoutesField value={routes} onChange={setRoutes} />
-      <button className="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
-      {error && <p className="error full" role="alert">{error}</p>}
+        </div>
+      </details>
     </form>
   );
 }
@@ -175,7 +182,7 @@ export default function LinksPage({ onOpenLink }) {
 
   return (
     <>
-      <h1>Links</h1>
+      <div className="page-head"><h1>Links</h1></div>
       {qrLink && <QrModal link={qrLink} onClose={() => setQrLink(null)} />}
       {editLink && <EditModal link={editLink} folders={folders} onClose={() => setEditLink(null)} onSaved={reloadAll} />}
       {showImport && <ImportModal folders={folders} domains={domains} onClose={() => setShowImport(false)} onImported={reloadAll} />}
@@ -200,9 +207,11 @@ export default function LinksPage({ onOpenLink }) {
             ))}
           </select>
         )}
-        <button className="btn" type="button" onClick={() => setShowFolders(true)}>Manage folders</button>
-        <button className="btn" type="button" onClick={() => setShowDomains(true)}>Domains</button>
-        <button className="btn" type="button" onClick={() => setShowImport(true)}>Import CSV</button>
+        <div className="toolbar-actions">
+          <button className="btn" type="button" onClick={() => setShowFolders(true)}>Folders</button>
+          <button className="btn" type="button" onClick={() => setShowDomains(true)}>Domains</button>
+          <button className="btn" type="button" onClick={() => setShowImport(true)}>Import CSV</button>
+        </div>
       </div>
       {tags?.length > 0 && (
         <div className="tag-bar" aria-label="Filter by tag">
@@ -217,7 +226,7 @@ export default function LinksPage({ onOpenLink }) {
       {error && !links ? (
         <ErrorNote message={error} onRetry={reload} />
       ) : !links ? (
-        <p className="muted">Loading links…</p>
+        <div className="skeleton" aria-label="Loading links" />
       ) : links.length === 0 && filtering ? (
         <div className="empty">
           <strong>No links match.</strong>
@@ -245,7 +254,7 @@ export default function LinksPage({ onOpenLink }) {
                 const s = status(l);
                 return (
                   <tr key={l.id}>
-                    <td>
+                    <td className="cell-link">
                       <button className="row-btn stacked" onClick={() => onOpenLink(l)}>
                         <span className="slug">/{l.slug}</span>
                         <span className="target">{l.targetUrl}</span>
@@ -264,8 +273,9 @@ export default function LinksPage({ onOpenLink }) {
                         </div>
                       )}
                     </td>
-                    <td className="num">{fmt(l.clickCount)}</td>
-                    <td>
+                    <td className="num" data-label="Clicks">{fmt(l.clickCount)}</td>
+                    <td className="status-wrap" data-label="Status">
+                      <div className="status-cell">
                       <span className={`pill ${s.key}`}>{s.text}</span>
                       {l.hasPassword && <span className="pill tag" title="Visitors must enter a password">Password</span>}
                       {l.maxClicks === 1 && s.key !== 'used' && <span className="pill tag" title="Stops working after one visit">One-time</span>}
@@ -275,19 +285,22 @@ export default function LinksPage({ onOpenLink }) {
                       {l.routes.length > 0 && (
                         <span className="pill tag" title="Sends visitors to different URLs by device or country">{l.routes.length} routing {l.routes.length === 1 ? 'rule' : 'rules'}</span>
                       )}
-                      {l.expiresAt && s.key === 'active' && <small className="muted"> until {fmtDate(l.expiresAt)}</small>}
+                      {l.expiresAt && s.key === 'active' && <small className="muted">Until {fmtDate(l.expiresAt)}</small>}
+                      </div>
                     </td>
-                    <td className="muted">{fmtDate(l.createdAt)}</td>
-                    <td className="actions">
-                      <button className="link-btn" onClick={() => copy(l)}>{copied === l.id ? 'Copied' : 'Copy link'}</button>
-                      <button className="link-btn" onClick={() => setQrLink(l)}>QR code</button>
-                      <button className="link-btn" onClick={() => setEditLink(l)}>Edit</button>
+                    <td className="muted created" data-label="Created">{fmtDate(l.createdAt)}</td>
+                    <td className="actions-cell">
+                      <div className="actions">
+                      <button className="act primary" onClick={() => copy(l)}>{copied === l.id ? 'Copied' : 'Copy link'}</button>
+                      <button className="act" onClick={() => setQrLink(l)}>QR code</button>
+                      <button className="act" onClick={() => setEditLink(l)}>Edit</button>
                       {l.maxClicks != null && l.usedClicks > 0 && (
-                        <button className="link-btn" onClick={() => resetCount(l)}>{isExhausted(l) ? 'Re-arm' : 'Reset count'}</button>
+                        <button className="act" onClick={() => resetCount(l)}>{isExhausted(l) ? 'Re-arm' : 'Reset count'}</button>
                       )}
-                      <button className="link-btn" onClick={() => setPassword(l)}>{l.hasPassword ? 'Change password' : 'Add password'}</button>
-                      <button className="link-btn" onClick={() => toggle(l)}>{l.isActive ? 'Pause' : 'Resume'}</button>
-                      <button className="link-btn danger" onClick={() => remove(l)}>Delete</button>
+                      <button className="act" onClick={() => setPassword(l)}>{l.hasPassword ? 'Change password' : 'Add password'}</button>
+                      <button className="act" onClick={() => toggle(l)}>{l.isActive ? 'Pause' : 'Resume'}</button>
+                      <button className="act danger" onClick={() => remove(l)}>Delete</button>
+                      </div>
                     </td>
                   </tr>
                 );
