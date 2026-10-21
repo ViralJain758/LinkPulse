@@ -1,9 +1,7 @@
 {
   "functions": {
     "src/index.js": {
-      "includeFiles": [
-        "node_modules/geoip-country/data/geoip-country.dat"
-      ]
+      "includeFiles": "node_modules/geoip-country/data/geoip-country.dat"
     }
   }
 }
