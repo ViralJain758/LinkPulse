@@ -28,29 +28,166 @@ Link object:
   "hasPassword": false,
   "maxClicks": null,
   "usedClicks": 0,
+  "tags": ["launch", "email"],
+  "folderId": "3",
+  "folderName": "Campaigns",
+  "domainId": null,
+  "domain": null,
   "createdAt": "2026-10-20T16:35:28.542Z",
   "clickCount": 12
 }
 ```
 
-`clickCount` (recorded analytics clicks) is only present in the list endpoint. `usedClicks` counts visits that consumed the click limit; it is `0` for unlimited links and can be lower than `clickCount`, because visits are only counted against the limit when a limit is set. The password hash is never returned.
+`clickCount` (recorded analytics clicks) is only present in the list endpoint. `usedClicks` counts visits that consumed the click limit; it is `0` for unlimited links and can be lower than `clickCount`, because visits are only counted against the limit when a limit is set. The password hash is never returned. `tags` is always an array; `folderId` and `folderName` are `null` for an unfiled link. `domainId` and `domain` (the host name) are `null` for a link on the default domain; for a link on a custom domain, `shortUrl` is `https://<domain>/<slug>` (with the scheme of `BASE_URL`).
 
 ### `POST /api/links`
 | Field | Type | Notes |
 |---|---|---|
 | `url` | string, required | `http`/`https`, max 2048 chars, not this service's own host |
-| `slug` | string | 3-32 chars `A-Za-z0-9_-`, not reserved. Random 7-char slug if omitted |
+| `slug` | string | 3-32 chars `A-Za-z0-9_-`, not reserved. Random 7-char slug if omitted. Unique per domain: `409` only if the slug is taken on the same domain |
 | `expiresAt` | ISO date | must be in the future |
 | `password` | string | 4-72 bytes. Visitors must enter it |
 | `maxClicks` | integer 1-1,000,000 | link stops working after this many visits (`1` = one-time). Omit or `null` for unlimited |
+| `tags` | array of strings | up to 10, each up to 32 characters: letters, numbers, spaces, `.` `-` `_`. Stored lowercase with single spaces; duplicates are dropped |
+| `folderId` | string or number | id of one of your folders. `400` if it does not exist or is not yours |
+| `domainId` | string or number | id of one of your **verified** custom domains; omit for the default domain. Cannot be changed afterwards. `400` if it is not yours or not verified |
 
 `201` → link. `400` validation, `409` slug taken.
 
 ### `GET /api/links`
-All your links, newest first, with `clickCount`.
+Your links, newest first, with `clickCount`. Optional filters, combined with AND:
+
+| Query | Meaning |
+|---|---|
+| `folder` | a folder id, or `none` for links in no folder |
+| `domain` | a domain id, or `none` for links on the default domain |
+| `tag` | links that have this tag (one tag; case-insensitive) |
+| `q` | case-insensitive text found in the slug, the destination URL or a tag |
+
+`400` for a malformed `folder`, or a `tag`/`q` given more than once.
+
+### `POST /api/links/bulk`
+Creates many links from a CSV. Send the CSV as the request body with `Content-Type: text/csv` (max 1 MB and 500 data rows).
+
+| Query | Meaning |
+|---|---|
+| `dryRun=true` | validate and report, create nothing |
+| `folder=Name` | folder for rows whose `folder` cell is empty (created if missing) |
+| `domain=host` | verified custom domain for rows whose `domain` cell is empty |
+| `tags=a,b` | tags added to every row |
+
+The first row is a header. Header names are matched ignoring case, spaces and punctuation, and the delimiter (comma, semicolon or tab) is detected. Only `url` is required:
+
+| Column | Also accepted | Notes |
+|---|---|---|
+| `url` | `target`, `destination` | same rules as `POST /api/links` |
+| `slug` | `alias` | random if empty |
+| `tags` | `tag`, `labels` | separate with `\|` (or `,` / `;` inside quotes) |
+| `folder` | | folder **name**, matched ignoring case; created if it does not exist |
+| `domain` | `custom_domain` | host name of one of your verified custom domains, e.g. `go.example.com`. Empty = default domain (or the `domain=` query value); writing the service's own host also means the default domain |
+| `expires_at` | `expires`, `expiry` | ISO 8601, in the future, e.g. `2027-12-31T23:59:00Z` |
+| `password` | | 4-72 bytes |
+| `max_clicks` | `click_limit`, `limit` | whole number 1-1,000,000 |
+
+Unknown columns are ignored and listed in `ignoredColumns`.
+
+Rows are independent: valid rows are created, invalid ones are reported and skipped. Rows that have a password take longer, because each is hashed with bcrypt. A slug that appears twice in the file is accepted for its first row only.
+
+`200` →
+
+```json
+{
+  "dryRun": false,
+  "total": 3,
+  "valid": 2,
+  "created": 2,
+  "failed": 1,
+  "ignoredColumns": ["Notes"],
+  "newFolders": ["Campaigns"],
+  "results": [
+    { "row": 2, "url": "https://example.com/a", "status": "created", "link": { "id": "41", "slug": "spring-sale", "...": "..." } },
+    { "row": 3, "url": "https://example.com/b", "status": "created", "link": { "...": "..." } },
+    { "row": 4, "url": "nope", "status": "error", "error": "url is not valid" }
+  ]
+}
+```
+
+`row` is the record number in the file, counting the header as row 1 and blank lines, so it matches a spreadsheet. With `dryRun=true`, valid rows have `status: "ok"`, `created` is `0` and `newFolders` lists the folders that a real run would create. Slugs already taken are detected in a dry run too, but a slug can still be lost to a concurrent request between the check and the import, in which case that row fails with the same message.
+
+`400` for a file-level problem (empty body, no `url` column, more than 500 rows, an unclosed quote, a limit on folders) with nothing created, `413` when the body is over 1 MB.
+
+```bash
+curl -X POST "localhost:4000/api/links/bulk?dryRun=true&folder=Imports" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: text/csv' --data-binary @links.csv
+```
+
+## Custom domains (auth required)
+
+Domain object:
+
+```json
+{
+  "id": "5",
+  "host": "go.example.com",
+  "verified": false,
+  "verifiedAt": null,
+  "createdAt": "2026-10-21T08:00:00.000Z",
+  "linkCount": 0,
+  "dns": {
+    "txtName": "_linkpulse.go.example.com",
+    "txtValue": "linkpulse-verify=9f3c...",
+    "target": "sho.rt"
+  }
+}
+```
+
+`dns` is what the user must create at their DNS provider: a TXT record `txtName` with value `txtValue` (proves ownership), and a CNAME from `host` to `target` (or an A/ALIAS record pointing at the same server). `target` is `CUSTOM_DOMAIN_TARGET`, or the host of `BASE_URL`.
+
+### `GET /api/domains`
+Your domains by host name, with `linkCount`.
+
+### `POST /api/domains`
+Body: `{ "host" }`: a bare host name such as `go.example.com`. Case and a trailing dot are normalised and international names are converted to punycode; URLs, paths, ports, IP addresses and single-label names are rejected, as is the service's own host. `201` → domain (not verified; it serves nothing yet). `400` validation or more than 10 domains, `409` if you already added it or another account has already verified it.
+
+Several accounts may add the same host, but only the first to verify it (by proving DNS control) gets it.
+
+### `POST /api/domains/:id/verify`
+Looks up the TXT record. Not finding it is a normal outcome, so this returns `200` either way:
+
+```json
+{ "verified": false, "message": "No TXT record found at _linkpulse.go.example.com yet. ...", "routing": false, "domain": { "...": "..." } }
+```
+
+`routing` is a hint, not a requirement: `true` when the host already has a CNAME to `target`, or an A record shared with it. `404` if not yours, `409` if another account verified the host first. Verifying an already verified domain returns `verified: true`.
+
+### `DELETE /api/domains/:id`
+`204`. A domain's links exist only on that domain, so removing it deletes them and their click history. If the domain still has links this returns `409` with `linkCount` unless you add `?deleteLinks=true`.
+
+### `GET /api/domains/allowed?domain=go.example.com`
+**No login required.** `200 { "allowed": true }` if the host is the service's own host or a verified custom domain, `404` otherwise. For a TLS proxy that issues certificates on demand (Caddy's `on_demand_tls { ask ... }`): it asks before requesting a certificate, so only verified domains get one. It reveals whether a host name is a verified domain, nothing else.
+
+## Folders and tags (auth required)
+
+Folder object: `{ "id": "3", "name": "Campaigns", "createdAt": "...", "linkCount": 12 }` (`linkCount` is included in all folder responses).
+
+### `GET /api/folders`
+Your folders sorted by name, with `linkCount`.
+
+### `POST /api/folders`
+Body: `{ "name" }` (1-50 characters, unique per user ignoring case, max 200 folders per user). `201` → folder. `400` validation, `409` name in use.
+
+### `PATCH /api/folders/:id`
+Body: `{ "name" }`. `200` → folder. `404` if not yours, `409` name in use.
+
+### `DELETE /api/folders/:id`
+`204`. The folder's links are kept and become unfiled.
+
+### `GET /api/tags`
+`[{ "name": "launch", "linkCount": 12 }]`, most used first. Tags exist only on links; there is nothing to create or delete here. To rename or remove a tag, `PATCH` the links.
+
 
 ### `PATCH /api/links/:id`
-Any of: `isActive` (bool), `url`, `expiresAt` (date, or `null` to clear), `password` (string to set, `null`/`""` to remove), `maxClicks` (integer, or `null` to remove the limit), `resetClicks` (`true` zeroes `usedClicks`, which re-arms an exhausted link).
+Any of: `isActive` (bool), `tags` (array; replaces all tags, `[]` clears them), `folderId` (id, or `null` to take the link out of its folder), `url`, `expiresAt` (date, or `null` to clear), `password` (string to set, `null`/`""` to remove), `maxClicks` (integer, or `null` to remove the limit), `resetClicks` (`true` zeroes `usedClicks`, which re-arms an exhausted link).
 Changing `maxClicks` keeps `usedClicks`: raising 5 to 10 after 5 visits leaves 5 more. Removing the limit also zeroes `usedClicks`. `404` if not yours.
 
 `oneTime` (the pre-0.4 field) is still accepted on input: `true` means `maxClicks: 1` and re-arms the link, `false` removes the limit. It is no longer returned; read `maxClicks` and `usedClicks` instead.
@@ -86,6 +223,8 @@ Response (overview adds `totalLinks` and `topLinks`; link stats add `link`):
 `timeseries` is zero-filled. `referrers` is grouped under friendly names; empty referrer means direct, and visits that came through a QR code (`?s=qr`, see below) are grouped as `QR code` regardless of referrer. `countries` needs a CDN header (see DEPLOYMENT.md).
 
 ## Public redirect
+
+Which links a request can reach depends on its `Host` header. The default domain (the host of `BASE_URL`, and any host that is not a verified custom domain) serves the links that are not on a custom domain. A verified custom domain serves only the links on that domain, so `go.example.com/sale` and `sho.rt/sale` can be different links. A domain that is added but not verified is treated like any other unknown host: it never serves a custom domain's links.
 
 ### `GET /:slug`
 | Situation | Response |

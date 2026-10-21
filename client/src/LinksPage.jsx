@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, useFetch } from './api.js';
 import { ErrorNote } from './ui.jsx';
 import { fmt, fmtDate } from './format.js';
 import QrModal from './QrModal.jsx';
 import EditModal from './EditModal.jsx';
+import ImportModal from './ImportModal.jsx';
+import FoldersModal from './FoldersModal.jsx';
+import DomainsModal from './DomainsModal.jsx';
+import { DomainSelect, FolderSelect, TagsField, textToTags } from './TagsInput.jsx';
 
 const isExhausted = (l) => l.maxClicks != null && l.usedClicks >= l.maxClicks;
 
@@ -14,12 +18,15 @@ function status(link) {
   return { key: 'active', text: 'Active' };
 }
 
-function CreateForm({ onCreated }) {
+function CreateForm({ folders, domains, onCreated }) {
   const [url, setUrl] = useState('');
   const [slug, setSlug] = useState('');
   const [expires, setExpires] = useState('');
   const [password, setPassword] = useState('');
   const [maxClicks, setMaxClicks] = useState('');
+  const [tags, setTags] = useState('');
+  const [folderId, setFolderId] = useState('');
+  const [domainId, setDomainId] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -34,12 +41,16 @@ function CreateForm({ onCreated }) {
         ...(expires && { expiresAt: new Date(expires).toISOString() }),
         ...(password && { password }),
         ...(maxClicks && { maxClicks: Number(maxClicks) }),
+        ...(textToTags(tags).length > 0 && { tags: textToTags(tags) }),
+        ...(folderId && { folderId }),
+        ...(domainId && { domainId }),
       });
       setUrl('');
       setSlug('');
       setExpires('');
       setPassword('');
       setMaxClicks('');
+      setTags('');
       onCreated();
     } catch (err) {
       setError(err.message);
@@ -70,6 +81,9 @@ function CreateForm({ onCreated }) {
         Click limit (optional)
         <input type="number" min="1" max="1000000" step="1" inputMode="numeric" value={maxClicks} onChange={(e) => setMaxClicks(e.target.value)} placeholder="Unlimited (1 = one-time)" />
       </label>
+      <TagsField value={tags} onChange={setTags} />
+      <FolderSelect folders={folders} value={folderId} onChange={setFolderId} />
+      <DomainSelect domains={domains} value={domainId} onChange={setDomainId} />
       <button className="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
       {error && <p className="error full" role="alert">{error}</p>}
     </form>
@@ -77,7 +91,45 @@ function CreateForm({ onCreated }) {
 }
 
 export default function LinksPage({ onOpenLink }) {
-  const { data: links, error, reload } = useFetch(() => api.links(), [], 30000);
+  const [folder, setFolder] = useState(''); // '' = all, 'none' = unfiled, else a folder id
+  const [domain, setDomain] = useState(''); // '' = all, 'none' = default domain, else a domain id
+  const [tag, setTag] = useState('');
+  const [search, setSearch] = useState('');
+  const [q, setQ] = useState(''); // search, after a short pause in typing
+  useEffect(() => {
+    const id = setTimeout(() => setQ(search.trim()), 250);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  const { data: links, error, reload } = useFetch(() => api.links({ folder, domain, tag, q }), [folder, domain, tag, q], 30000);
+  const { data: folders, reload: reloadFolders } = useFetch(() => api.folders(), [], 30000);
+  const { data: tags, reload: reloadTags } = useFetch(() => api.tags(), [], 30000);
+  const { data: domains, reload: reloadDomains } = useFetch(() => api.domains(), [], 30000);
+  const verifiedDomains = (domains || []).filter((d) => d.verified);
+  const reloadAll = () => {
+    reload();
+    reloadFolders();
+    reloadTags();
+    reloadDomains();
+  };
+  const filtering = Boolean(folder || domain || tag || q);
+  const clearFilters = () => {
+    setFolder('');
+    setDomain('');
+    setTag('');
+    setSearch('');
+  };
+  // A deleted folder (or removed tag) must not leave the list filtered by something that is gone
+  useEffect(() => {
+    if (folder && folder !== 'none' && folders && !folders.some((f) => f.id === folder)) setFolder('');
+  }, [folders, folder]);
+  const [showImport, setShowImport] = useState(false);
+  const [showFolders, setShowFolders] = useState(false);
+  const [showDomains, setShowDomains] = useState(false);
+  // A removed domain must not leave the list filtered by something that is gone
+  useEffect(() => {
+    if (domain && domain !== 'none' && domains && !domains.some((d) => d.id === domain)) setDomain('');
+  }, [domains, domain]);
   const [copied, setCopied] = useState(null);
   const [actionError, setActionError] = useState('');
   const [qrLink, setQrLink] = useState(null);
@@ -97,7 +149,7 @@ export default function LinksPage({ onOpenLink }) {
     setActionError('');
     try {
       await fn();
-      reload();
+      reloadAll();
     } catch (err) {
       setActionError(err.message);
     }
@@ -120,17 +172,56 @@ export default function LinksPage({ onOpenLink }) {
     <>
       <h1>Links</h1>
       {qrLink && <QrModal link={qrLink} onClose={() => setQrLink(null)} />}
-      {editLink && <EditModal link={editLink} onClose={() => setEditLink(null)} onSaved={reload} />}
-      <CreateForm onCreated={reload} />
+      {editLink && <EditModal link={editLink} folders={folders} onClose={() => setEditLink(null)} onSaved={reloadAll} />}
+      {showImport && <ImportModal folders={folders} domains={domains} onClose={() => setShowImport(false)} onImported={reloadAll} />}
+      {showFolders && <FoldersModal onClose={() => setShowFolders(false)} onChanged={reloadAll} />}
+      {showDomains && <DomainsModal onClose={() => setShowDomains(false)} onChanged={reloadAll} />}
+      <CreateForm folders={folders} domains={domains} onCreated={reloadAll} />
+      <div className="toolbar">
+        <input type="search" className="search" placeholder="Search slug, URL or tag" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search links" />
+        <select value={folder} onChange={(e) => setFolder(e.target.value)} aria-label="Filter by folder">
+          <option value="">All folders</option>
+          <option value="none">Unfiled</option>
+          {(folders || []).map((f) => (
+            <option key={f.id} value={f.id}>{f.name} ({fmt(f.linkCount)})</option>
+          ))}
+        </select>
+        {verifiedDomains.length > 0 && (
+          <select value={domain} onChange={(e) => setDomain(e.target.value)} aria-label="Filter by domain">
+            <option value="">All domains</option>
+            <option value="none">Default domain</option>
+            {verifiedDomains.map((d) => (
+              <option key={d.id} value={d.id}>{d.host}</option>
+            ))}
+          </select>
+        )}
+        <button className="btn" type="button" onClick={() => setShowFolders(true)}>Manage folders</button>
+        <button className="btn" type="button" onClick={() => setShowDomains(true)}>Domains</button>
+        <button className="btn" type="button" onClick={() => setShowImport(true)}>Import CSV</button>
+      </div>
+      {tags?.length > 0 && (
+        <div className="tag-bar" aria-label="Filter by tag">
+          {tags.map((t) => (
+            <button key={t.name} type="button" className={`chip ${tag === t.name ? 'on' : ''}`} aria-pressed={tag === t.name} onClick={() => setTag(tag === t.name ? '' : t.name)}>
+              {t.name} <small>{fmt(t.linkCount)}</small>
+            </button>
+          ))}
+        </div>
+      )}
       {actionError && <ErrorNote message={actionError} />}
       {error && !links ? (
         <ErrorNote message={error} onRetry={reload} />
       ) : !links ? (
         <p className="muted">Loading links…</p>
+      ) : links.length === 0 && filtering ? (
+        <div className="empty">
+          <strong>No links match.</strong>
+          <p><button className="link-btn" onClick={clearFilters}>Clear filters</button></p>
+        </div>
       ) : links.length === 0 ? (
         <div className="empty">
           <strong>No links yet.</strong>
-          <p>Paste a destination URL above to create your first short link.</p>
+          <p>Paste a destination URL above to create your first short link, or import many at once from a CSV file.</p>
         </div>
       ) : (
         <div className="table-wrap">
@@ -154,6 +245,19 @@ export default function LinksPage({ onOpenLink }) {
                         <span className="slug">/{l.slug}</span>
                         <span className="target">{l.targetUrl}</span>
                       </button>
+                      {(l.folderName || l.domain || l.tags.length > 0) && (
+                        <div className="meta">
+                          {l.domain && (
+                            <button type="button" className="chip domain-chip" title="Show links on this domain" onClick={() => setDomain(l.domainId)}>{l.domain}</button>
+                          )}
+                          {l.folderName && (
+                            <button type="button" className="chip folder" title="Show this folder" onClick={() => setFolder(l.folderId)}>{l.folderName}</button>
+                          )}
+                          {l.tags.map((t) => (
+                            <button key={t} type="button" className={`chip ${tag === t ? 'on' : ''}`} title="Filter by this tag" onClick={() => setTag(t)}>#{t}</button>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="num">{fmt(l.clickCount)}</td>
                     <td>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
+import { FolderSelect, TagsField, tagsToText, textToTags } from './TagsInput.jsx';
 
 // <input type="datetime-local"> wants "YYYY-MM-DDTHH:mm" in the viewer's local time.
 function toLocalInput(iso) {
@@ -9,18 +10,22 @@ function toLocalInput(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Edits the destination, expiry and click limit. Only fields that actually changed are sent,
+// Edits the destination, expiry, click limit, tags and folder. Only fields that actually changed are sent,
 // so saving never re-validates an expiry that has since passed or touches the password.
-export default function EditModal({ link, onClose, onSaved }) {
+export default function EditModal({ link, folders, onClose, onSaved }) {
   const ref = useRef(null);
   const initial = {
     url: link.targetUrl,
     expires: toLocalInput(link.expiresAt),
     maxClicks: link.maxClicks == null ? '' : String(link.maxClicks),
+    tags: tagsToText(link.tags),
+    folderId: link.folderId ?? '',
   };
   const [url, setUrl] = useState(initial.url);
   const [expires, setExpires] = useState(initial.expires);
   const [maxClicks, setMaxClicks] = useState(initial.maxClicks);
+  const [tags, setTags] = useState(initial.tags);
+  const [folderId, setFolderId] = useState(initial.folderId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +39,8 @@ export default function EditModal({ link, onClose, onSaved }) {
     if (url !== initial.url) body.url = url;
     if (expires !== initial.expires) body.expiresAt = expires ? new Date(expires).toISOString() : null;
     if (maxClicks !== initial.maxClicks) body.maxClicks = maxClicks ? Number(maxClicks) : null;
+    if (tags !== initial.tags) body.tags = textToTags(tags);
+    if (folderId !== initial.folderId) body.folderId = folderId || null;
     if (Object.keys(body).length === 0) return ref.current.close();
 
     setBusy(true);
@@ -69,6 +76,8 @@ export default function EditModal({ link, onClose, onSaved }) {
             Empty = unlimited, 1 = one-time. Raising the limit keeps the visits already used.
           </small>
         </label>
+        <TagsField value={tags} onChange={setTags} />
+        <FolderSelect folders={folders} value={folderId} onChange={setFolderId} />
         {error && <p className="error" role="alert">{error}</p>}
         <div className="qr-actions">
           <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>

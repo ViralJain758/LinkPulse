@@ -4,7 +4,8 @@ import { query } from '../db.js';
 import { logClick } from '../services/clickLogger.js';
 import { parseUserAgent } from '../services/clickParser.js';
 import { isBlocked, recordFailure, clearFailures } from '../services/rateLimit.js';
-import { getCached, setCached, currentEpoch } from '../services/slugCache.js';
+import { getCached, setCached, currentEpoch, slugKey } from '../services/slugCache.js';
+import { resolveDomainId } from '../services/domainLookup.js';
 
 const router = Router();
 
@@ -57,19 +58,27 @@ function passwordPage(res, slug, error, status = 200, source = null) {
   );
 }
 
-const SELECT =
-  'SELECT id, target_url, is_active, expires_at, password_hash, max_clicks, used_clicks FROM links WHERE slug = $1';
+const COLUMNS = 'id, target_url, is_active, expires_at, password_hash, max_clicks, used_clicks';
+// A slug is unique per domain: the service's own domain (domain_id NULL) or one custom domain.
+// Two statements rather than one, so each uses its own partial unique index.
+const SELECT_DEFAULT = `SELECT ${COLUMNS} FROM links WHERE slug = $1 AND domain_id IS NULL`;
+const SELECT_ON_DOMAIN = `SELECT ${COLUMNS} FROM links WHERE slug = $1 AND domain_id = $2`;
 
 // Cache-aware lookup. Click-limited links are never cached because used_clicks changes on
 // every visit; the epoch check stops a lookup that raced with a PATCH/DELETE from caching
 // the pre-edit row.
-async function findLink(slug) {
-  const cached = getCached(slug);
+// `domainId` is null for the service's own domain, otherwise the verified custom domain the
+// request came in on (see resolveDomainId).
+async function findLink(domainId, slug) {
+  const key = slugKey(domainId, slug);
+  const cached = getCached(key);
   if (cached) return cached;
   const epoch = currentEpoch();
-  const { rows } = await query(SELECT, [slug]);
+  const { rows } = domainId == null
+    ? await query(SELECT_DEFAULT, [slug])
+    : await query(SELECT_ON_DOMAIN, [slug, domainId]);
   const link = rows[0];
-  if (link && link.max_clicks == null) setCached(slug, link, epoch);
+  if (link && link.max_clicks == null) setCached(key, link, epoch);
   return link;
 }
 
@@ -122,12 +131,13 @@ function follow(link, req, res, { post }) {
   if (req.method === 'GET' || req.method === 'POST') logClick(link.id, req);
 }
 
-const rateKey = (req, slug) => `${req.ip}|${slug}`;
+const rateKey = (req, domainId, slug) => `${req.ip}|${domainId ?? ''}:${slug}`;
 
 // GET|HEAD /:slug  (public, must be registered AFTER all other routes)
 router.get('/:slug', async (req, res, next) => {
   try {
-    const link = await findLink(req.params.slug);
+    const domainId = await resolveDomainId(req.hostname);
+    const link = await findLink(domainId, req.params.slug);
     if (checkServable(link, res)) return;
 
     if (link.password_hash) return passwordPage(res, req.params.slug, null, 200, sourceOf(req));
@@ -151,12 +161,13 @@ router.get('/:slug', async (req, res, next) => {
 router.post('/:slug', urlencoded({ extended: false, limit: '2kb' }), async (req, res, next) => {
   try {
     const slug = req.params.slug;
-    const link = await findLink(slug);
+    const domainId = await resolveDomainId(req.hostname);
+    const link = await findLink(domainId, slug);
     if (checkServable(link, res)) return;
     const source = sourceOf(req);
     if (!link.password_hash) return res.redirect(303, `/${encodeURIComponent(slug)}${source ? `?s=${source}` : ''}`);
 
-    const key = rateKey(req, slug);
+    const key = rateKey(req, domainId, slug);
     if (isBlocked(key)) {
       res.set('Retry-After', '900');
       return passwordPage(res, slug, 'Too many wrong attempts. Try again in 15 minutes.', 429, source);

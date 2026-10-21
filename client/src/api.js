@@ -18,15 +18,17 @@ export const clearSession = () => localStorage.removeItem(SESSION_KEY);
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
 
-async function request(path, { method = 'GET', body } = {}) {
+// `body` is sent as JSON; `csv` is sent as text/csv (bulk import)
+async function request(path, { method = 'GET', body, csv } = {}) {
   const token = getSession()?.token;
   const res = await fetch(`/api${path}`, {
     method,
     headers: {
       ...(body && { 'Content-Type': 'application/json' }),
+      ...(csv !== undefined && { 'Content-Type': 'text/csv; charset=utf-8' }),
       ...(token && { Authorization: `Bearer ${token}` }),
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: csv !== undefined ? csv : body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
@@ -40,7 +42,25 @@ async function request(path, { method = 'GET', body } = {}) {
 export const api = {
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   register: (email, password) => request('/auth/register', { method: 'POST', body: { email, password } }),
-  links: () => request('/links'),
+  // filters: { folder: id | 'none', domain: id | 'none', tag, q } (all optional)
+  links: (filters = {}) => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
+    return request(`/links${qs ? `?${qs}` : ''}`);
+  },
+  domains: () => request('/domains'),
+  addDomain: (host) => request('/domains', { method: 'POST', body: { host } }),
+  verifyDomain: (id) => request(`/domains/${id}/verify`, { method: 'POST' }),
+  deleteDomain: (id, deleteLinks = false) => request(`/domains/${id}${deleteLinks ? '?deleteLinks=true' : ''}`, { method: 'DELETE' }),
+  folders: () => request('/folders'),
+  createFolder: (name) => request('/folders', { method: 'POST', body: { name } }),
+  renameFolder: (id, name) => request(`/folders/${id}`, { method: 'PATCH', body: { name } }),
+  deleteFolder: (id) => request(`/folders/${id}`, { method: 'DELETE' }),
+  tags: () => request('/tags'),
+  // options: { dryRun, folder (name), domain (host), tags (comma separated) }
+  bulkCreate: (csv, { dryRun = false, folder = '', domain = '', tags = '' } = {}) => {
+    const qs = new URLSearchParams({ ...(dryRun && { dryRun: 'true' }), ...(folder && { folder }), ...(domain && { domain }), ...(tags && { tags }) }).toString();
+    return request(`/links/bulk${qs ? `?${qs}` : ''}`, { method: 'POST', csv });
+  },
   createLink: (body) => request('/links', { method: 'POST', body }),
   updateLink: (id, body) => request(`/links/${id}`, { method: 'PATCH', body }),
   deleteLink: (id) => request(`/links/${id}`, { method: 'DELETE' }),

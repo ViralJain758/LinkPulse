@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS links (
   id            BIGSERIAL PRIMARY KEY,
   user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  slug          TEXT NOT NULL UNIQUE,
+  slug          TEXT NOT NULL,              -- v6: unique per domain (see the indexes below)
   target_url    TEXT NOT NULL,
   password_hash TEXT,                       -- v3: protected links
   max_clicks    INTEGER CHECK (max_clicks > 0), -- v4: NULL = unlimited, 1 = one-time
@@ -39,6 +39,44 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_links_user ON links(user_id, created_at DESC);
+
+-- v5: organise many links. A link has at most one folder (flat, per user) and any number of tags.
+CREATE TABLE IF NOT EXISTS folders (
+  id         BIGSERIAL PRIMARY KEY,
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 50),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Folder names are unique per user, ignoring case ("Launch" and "launch" are the same folder)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_user_name ON folders(user_id, lower(name));
+
+-- Deleting a folder keeps its links; they just become unfiled
+ALTER TABLE links ADD COLUMN IF NOT EXISTS folder_id BIGINT REFERENCES folders(id) ON DELETE SET NULL;
+ALTER TABLE links ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS idx_links_folder ON links(user_id, folder_id);
+CREATE INDEX IF NOT EXISTS idx_links_tags ON links USING GIN (tags);
+
+-- v6: custom domains. A user adds a host (go.example.com), proves they control it with a DNS TXT
+-- record, and then links can live on it. Only verified domains serve anything.
+CREATE TABLE IF NOT EXISTS domains (
+  id                 BIGSERIAL PRIMARY KEY,
+  user_id            BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  host               TEXT NOT NULL CHECK (host = lower(host) AND char_length(host) <= 253),
+  verification_token TEXT NOT NULL,
+  verified_at        TIMESTAMPTZ,                -- NULL = not verified, serves nothing
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_domains_user_host ON domains(user_id, host);
+-- Several users may claim a host, but only the first to prove control can verify it
+CREATE UNIQUE INDEX IF NOT EXISTS idx_domains_verified_host ON domains(host) WHERE verified_at IS NOT NULL;
+
+-- domain_id NULL = the service's own domain (BASE_URL). Deleting a domain deletes its links.
+ALTER TABLE links ADD COLUMN IF NOT EXISTS domain_id BIGINT REFERENCES domains(id) ON DELETE CASCADE;
+-- A slug is unique per domain, so two users can both have /sale on their own domains.
+-- The new indexes come first so slugs are never unprotected; then the old global constraint goes.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_links_slug_default ON links(slug) WHERE domain_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_links_slug_domain ON links(domain_id, slug) WHERE domain_id IS NOT NULL;
+ALTER TABLE links DROP CONSTRAINT IF EXISTS links_slug_key;
 
 -- Created now, used from v2 (click logging)
 CREATE TABLE IF NOT EXISTS clicks (

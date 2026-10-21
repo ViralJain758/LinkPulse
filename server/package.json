@@ -2,6 +2,15 @@
   "name": "linkpulse-server",
   "version": "0.3.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ViralJain758/LinkPulse.git",
+    "directory": "server"
+  },
+  "bugs": {
+    "url": "https://github.com/ViralJain758/LinkPulse/issues"
+  },
+  "homepage": "https://github.com/ViralJain758/LinkPulse#readme",
   "type": "module",
   "scripts": {
     "dev": "node --watch --env-file=.env src/index.js",

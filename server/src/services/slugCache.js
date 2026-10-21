@@ -5,7 +5,7 @@ import { config } from '../config.js';
 // link changes on every visit (used_clicks), so it always reads the database.
 //
 // Freshness:
-//  - PATCH and DELETE call invalidate(slug), so edits apply immediately on this process.
+//  - PATCH and DELETE call invalidate(slugKey(domainId, slug)), so edits apply immediately on this process.
 //  - Entries also expire after SLUG_CACHE_TTL_SECONDS. That is the only thing that bounds
 //    staleness when several instances run: each has its own cache and only the instance that
 //    handled the PATCH/DELETE is cleared. Expiry and active state are still checked on every
@@ -16,7 +16,11 @@ const ttlMs = config.slugCacheTtlSeconds * 1000;
 const max = config.slugCacheMax;
 export const enabled = ttlMs > 0 && max > 0;
 
-const entries = new Map(); // slug -> { link, expiresAt }; Map order doubles as LRU order
+// A slug is only unique within a domain, so cache keys are slugKey(domainId, slug)
+// (domainId is null for the service's own domain). Every call below takes such a key.
+export const slugKey = (domainId, slug) => `${domainId ?? ''}:${slug}`;
+
+const entries = new Map(); // key -> { link, expiresAt }; Map order doubles as LRU order
 
 // Bumped on every invalidation. A lookup that started before an invalidation must not store
 // its (possibly pre-edit) row afterwards, so callers pass the epoch they saw before querying.
