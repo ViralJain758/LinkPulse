@@ -8,6 +8,7 @@ import { invalidate, slugKey } from '../services/slugCache.js';
 import { findServiceHosts } from '../services/domainLookup.js';
 import { normalizeHost } from '../services/domainDns.js';
 import { generateSlug } from '../services/slug.js';
+import { parseRoutes } from '../services/routing.js';
 import {
   MAX_FOLDERS_PER_USER,
   normalizeTag,
@@ -42,6 +43,7 @@ const toResponse = (row) => ({
   folderName: row.folder_name ?? null,
   domainId: row.domain_id ?? null,
   domain: row.domain_host ?? null,
+  routes: row.routes ?? [],
   createdAt: row.created_at,
   // Only present when the query selected it (the list endpoint)
   ...(row.click_count !== undefined && { clickCount: row.click_count }),
@@ -77,14 +79,22 @@ async function pointsAtCustomDomain(url) {
   return (await findServiceHosts([host])).has(host.toLowerCase());
 }
 
+// True when any routing rule points at a verified custom domain of this service (same check as `url`)
+async function routesPointAtService(routes) {
+  if (routes.length === 0) return false;
+  const hosts = routes.map((r) => new URL(r.url).hostname.toLowerCase());
+  const found = await findServiceHosts(hosts);
+  return hosts.some((h) => found.has(h));
+}
+
 // Inserts one link. Returns { row } | { taken: true } (custom slug in use) | { exhausted: true }.
 // A custom slug gets one attempt (a collision is the caller's to fix); a generated one is retried.
 async function insertLink(userId, f) {
   const run = (slug) =>
     query(
-      `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, max_clicks, tags, folder_id, domain_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ${RETURNING_LINK}`,
-      [userId, slug, f.url, f.expiresAt ?? null, f.passwordHash ?? null, f.maxClicks ?? null, f.tags ?? [], f.folderId ?? null, f.domainId ?? null]
+      `INSERT INTO links (user_id, slug, target_url, expires_at, password_hash, max_clicks, tags, folder_id, domain_id, routes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb) ${RETURNING_LINK}`,
+      [userId, slug, f.url, f.expiresAt ?? null, f.passwordHash ?? null, f.maxClicks ?? null, f.tags ?? [], f.folderId ?? null, f.domainId ?? null, JSON.stringify(f.routes ?? [])]
     );
 
   if (f.slug) {
@@ -105,7 +115,8 @@ async function insertLink(userId, f) {
   return { exhausted: true };
 }
 
-// POST /api/links  { url, slug?, expiresAt?, password?, maxClicks?, tags?, folderId?, domainId? }
+// POST /api/links  { url, slug?, expiresAt?, password?, maxClicks?, tags?, folderId?, domainId?, routes? }
+// routes sends matching visitors elsewhere: [{ device: 'ios'|'android', country: 'DE', url }] (see services/routing.js).
 // domainId puts the link on one of your verified custom domains; omit it for the service's own domain.
 router.post('/', async (req, res, next) => {
   try {
@@ -126,6 +137,10 @@ router.post('/', async (req, res, next) => {
 
     const tags = parseTags(req.body?.tags);
     if (tags.error) return res.status(400).json({ error: tags.error });
+
+    const routes = parseRoutes(req.body?.routes);
+    if (routes.error) return res.status(400).json({ error: routes.error });
+    if (await routesPointAtService(routes.value)) return res.status(400).json({ error: SELF_LINK_ERROR });
 
     const folder = parseFolderId(req.body?.folderId);
     if (folder.error) return res.status(400).json({ error: folder.error });
@@ -148,6 +163,7 @@ router.post('/', async (req, res, next) => {
       tags: tags.value,
       folderId: folder.value,
       domainId: domain.value,
+      routes: routes.value,
     }).catch((err) => {
       if (isForeignKeyViolation(err)) return { missingFolder: true };
       throw err;
@@ -413,7 +429,8 @@ router.get('/', async (req, res, next) => {
 // PATCH /api/links/:id
 //   { isActive?, url?, expiresAt? (null clears), password? (null removes),
 //     maxClicks? (null removes the limit), resetClicks? (true zeroes the used counter),
-//     tags? (array, replaces all tags), folderId? (null removes it from its folder) }
+//     tags? (array, replaces all tags), folderId? (null removes it from its folder),
+//     routes? (array, replaces all routing rules; [] or null removes them) }
 // Changing maxClicks keeps the used counter, so raising 5 -> 10 after 5 visits leaves 5 more;
 // removing the limit also zeroes the counter. The pre-v4 `oneTime: true` still works and
 // re-arms the link (limit 1, counter 0).
@@ -465,6 +482,13 @@ router.patch('/:id', async (req, res, next) => {
       const tags = parseTags(req.body.tags);
       if (tags.error) return res.status(400).json({ error: tags.error });
       add('tags', tags.value);
+    }
+
+    if (req.body?.routes !== undefined) {
+      const routes = parseRoutes(req.body.routes);
+      if (routes.error) return res.status(400).json({ error: routes.error });
+      if (await routesPointAtService(routes.value)) return res.status(400).json({ error: SELF_LINK_ERROR });
+      add('routes', JSON.stringify(routes.value));
     }
 
     if (req.body?.folderId !== undefined) {

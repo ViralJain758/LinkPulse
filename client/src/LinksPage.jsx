@@ -8,6 +8,7 @@ import ImportModal from './ImportModal.jsx';
 import FoldersModal from './FoldersModal.jsx';
 import DomainsModal from './DomainsModal.jsx';
 import { DomainSelect, FolderSelect, TagsField, textToTags } from './TagsInput.jsx';
+import { RoutesField, rowsToRoutes } from './RoutesField.jsx';
 
 const isExhausted = (l) => l.maxClicks != null && l.usedClicks >= l.maxClicks;
 
@@ -27,6 +28,7 @@ function CreateForm({ folders, domains, onCreated }) {
   const [tags, setTags] = useState('');
   const [folderId, setFolderId] = useState('');
   const [domainId, setDomainId] = useState('');
+  const [routes, setRoutes] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -44,6 +46,7 @@ function CreateForm({ folders, domains, onCreated }) {
         ...(textToTags(tags).length > 0 && { tags: textToTags(tags) }),
         ...(folderId && { folderId }),
         ...(domainId && { domainId }),
+        ...(routes.length > 0 && { routes: rowsToRoutes(routes) }),
       });
       setUrl('');
       setSlug('');
@@ -51,6 +54,7 @@ function CreateForm({ folders, domains, onCreated }) {
       setPassword('');
       setMaxClicks('');
       setTags('');
+      setRoutes([]);
       onCreated();
     } catch (err) {
       setError(err.message);
@@ -84,6 +88,7 @@ function CreateForm({ folders, domains, onCreated }) {
       <TagsField value={tags} onChange={setTags} />
       <FolderSelect folders={folders} value={folderId} onChange={setFolderId} />
       <DomainSelect domains={domains} value={domainId} onChange={setDomainId} />
+      <RoutesField value={routes} onChange={setRoutes} />
       <button className="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
       {error && <p className="error full" role="alert">{error}</p>}
     </form>
@@ -266,6 +271,9 @@ export default function LinksPage({ onOpenLink }) {
                       {l.maxClicks === 1 && s.key !== 'used' && <span className="pill tag" title="Stops working after one visit">One-time</span>}
                       {l.maxClicks > 1 && (
                         <span className="pill tag" title="Stops working after this many visits">{fmt(l.usedClicks)} / {fmt(l.maxClicks)} visits</span>
+                      )}
+                      {l.routes.length > 0 && (
+                        <span className="pill tag" title="Sends visitors to different URLs by device or country">{l.routes.length} routing {l.routes.length === 1 ? 'rule' : 'rules'}</span>
                       )}
                       {l.expiresAt && s.key === 'active' && <small className="muted"> until {fmtDate(l.expiresAt)}</small>}
                     </td>

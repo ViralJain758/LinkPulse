@@ -6,6 +6,7 @@ import { parseUserAgent } from '../services/clickParser.js';
 import { isBlocked, recordFailure, clearFailures } from '../services/rateLimit.js';
 import { getCached, setCached, currentEpoch, slugKey } from '../services/slugCache.js';
 import { resolveDomainId } from '../services/domainLookup.js';
+import { resolveDestination } from '../services/routing.js';
 
 const router = Router();
 
@@ -58,7 +59,7 @@ function passwordPage(res, slug, error, status = 200, source = null) {
   );
 }
 
-const COLUMNS = 'id, target_url, is_active, expires_at, password_hash, max_clicks, used_clicks';
+const COLUMNS = 'id, target_url, routes, is_active, expires_at, password_hash, max_clicks, used_clicks';
 // A slug is unique per domain: the service's own domain (domain_id NULL) or one custom domain.
 // Two statements rather than one, so each uses its own partial unique index.
 const SELECT_DEFAULT = `SELECT ${COLUMNS} FROM links WHERE slug = $1 AND domain_id IS NULL`;
@@ -125,7 +126,8 @@ function follow(link, req, res, { post }) {
   // 302 (not 301): browsers must not cache it, or later clicks never reach the server and
   // expiry/deactivation/analytics/one-time use would break. 303 after a POST so the browser
   // switches to GET for the destination.
-  res.set('Cache-Control', 'no-store').redirect(post ? 303 : 302, link.target_url);
+  // A device/country rule (iOS -> App Store...) replaces the target when one matches.
+  res.set('Cache-Control', 'no-store').redirect(post ? 303 : 302, resolveDestination(link, req));
   // Log AFTER responding so analytics never slow the redirect (see clickLogger.js).
   // HEAD requests are not real visits.
   if (req.method === 'GET' || req.method === 'POST') logClick(link.id, req);

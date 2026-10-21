@@ -33,12 +33,15 @@ Link object:
   "folderName": "Campaigns",
   "domainId": null,
   "domain": null,
+  "routes": [
+    { "device": "ios", "country": null, "url": "https://apps.apple.com/app/id123" }
+  ],
   "createdAt": "2026-10-20T16:35:28.542Z",
   "clickCount": 12
 }
 ```
 
-`clickCount` (recorded analytics clicks) is only present in the list endpoint. `usedClicks` counts visits that consumed the click limit; it is `0` for unlimited links and can be lower than `clickCount`, because visits are only counted against the limit when a limit is set. The password hash is never returned. `tags` is always an array; `folderId` and `folderName` are `null` for an unfiled link. `domainId` and `domain` (the host name) are `null` for a link on the default domain; for a link on a custom domain, `shortUrl` is `https://<domain>/<slug>` (with the scheme of `BASE_URL`).
+`clickCount` (recorded analytics clicks) is only present in the list endpoint. `usedClicks` counts visits that consumed the click limit; it is `0` for unlimited links and can be lower than `clickCount`, because visits are only counted against the limit when a limit is set. The password hash is never returned. `tags` is always an array; `folderId` and `folderName` are `null` for an unfiled link. `domainId` and `domain` (the host name) are `null` for a link on the default domain; for a link on a custom domain, `shortUrl` is `https://<domain>/<slug>` (with the scheme of `BASE_URL`). `routes` is always an array (empty when the link has no routing rules); see [Device and country routing](#device-and-country-routing).
 
 ### `POST /api/links`
 | Field | Type | Notes |
@@ -51,6 +54,7 @@ Link object:
 | `tags` | array of strings | up to 10, each up to 32 characters: letters, numbers, spaces, `.` `-` `_`. Stored lowercase with single spaces; duplicates are dropped |
 | `folderId` | string or number | id of one of your folders. `400` if it does not exist or is not yours |
 | `domainId` | string or number | id of one of your **verified** custom domains; omit for the default domain. Cannot be changed afterwards. `400` if it is not yours or not verified |
+| `routes` | array of rules | send matching visitors to a different URL by device or country, e.g. iOS to the App Store. Up to 10 rules; see [Device and country routing](#device-and-country-routing) |
 
 `201` → link. `400` validation, `409` slug taken.
 
@@ -187,7 +191,7 @@ Body: `{ "name" }`. `200` → folder. `404` if not yours, `409` name in use.
 
 
 ### `PATCH /api/links/:id`
-Any of: `isActive` (bool), `tags` (array; replaces all tags, `[]` clears them), `folderId` (id, or `null` to take the link out of its folder), `url`, `expiresAt` (date, or `null` to clear), `password` (string to set, `null`/`""` to remove), `maxClicks` (integer, or `null` to remove the limit), `resetClicks` (`true` zeroes `usedClicks`, which re-arms an exhausted link).
+Any of: `isActive` (bool), `tags` (array; replaces all tags, `[]` clears them), `folderId` (id, or `null` to take the link out of its folder), `routes` (array; replaces all rules, `[]` or `null` removes them), `url`, `expiresAt` (date, or `null` to clear), `password` (string to set, `null`/`""` to remove), `maxClicks` (integer, or `null` to remove the limit), `resetClicks` (`true` zeroes `usedClicks`, which re-arms an exhausted link).
 Changing `maxClicks` keeps `usedClicks`: raising 5 to 10 after 5 visits leaves 5 more. Removing the limit also zeroes `usedClicks`. `404` if not yours.
 
 `oneTime` (the pre-0.4 field) is still accepted on input: `true` means `maxClicks: 1` and re-arms the link, `false` removes the limit. It is no longer returned; read `maxClicks` and `usedClicks` instead.
@@ -196,6 +200,37 @@ Changing `maxClicks` keeps `usedClicks`: raising 5 to 10 after 5 visits leaves 5
 `204`. Deletes the link and its clicks.
 
 **When changes reach visitors.** The redirect caches link lookups in memory (see [ARCHITECTURE.md](ARCHITECTURE.md#slug-cache)). A successful `PATCH` or `DELETE` clears the cached entry on the server that handled it, so pausing, re-pointing, changing the password or deleting a link applies to the next visit. When several server instances run, each has its own cache and the others keep serving the previous version for up to `SLUG_CACHE_TTL_SECONDS` (60 by default; `0` disables the cache). `expiresAt` is always enforced on time, even for a cached link.
+
+### Device and country routing
+
+A link can carry routing rules. A visit that matches a rule goes to that rule's URL instead of the link's `url`; any other visit still goes to `url`.
+
+```json
+{
+  "url": "https://example.com/get-the-app",
+  "routes": [
+    { "device": "ios", "url": "https://apps.apple.com/app/id123456789" },
+    { "device": "android", "url": "https://play.google.com/store/apps/details?id=com.example.app" },
+    { "country": "DE", "url": "https://example.de/app" }
+  ]
+}
+```
+
+| Rule field | Notes |
+|---|---|
+| `device` | `ios` or `android`. Omit it to match any device |
+| `country` | 2-letter country code (`DE`, `IN`; stored uppercase). Omit it to match any country |
+| `url` | `http`/`https`, max 2048 chars, not this service's own host or one of its verified custom domains |
+
+- A rule needs a `device`, a `country` or both. With both, a visitor must match both (`{ "device": "ios", "country": "DE" }` is iOS visitors in Germany).
+- **Rules are tried in the order given and the first match wins.** Put specific rules before general ones: with `[{ "device": "ios" }, { "device": "ios", "country": "DE" }]` the second rule is never reached. Two rules with the same device and country are refused.
+- Routes work together with passwords, expiry and click limits, which are checked first. The visit that is counted or logged is the same one; analytics do not record which rule was used (the click's `os` and `country` columns show who visited).
+- `POST`/`PATCH` return `400` with the rule number in the message (`Rule 2: country must be a 2-letter code such as "DE"`). Routing is not part of the CSV import.
+
+How visitors are recognised:
+
+- **Device** comes from the `User-Agent`. iPhones and iPads that identify as iOS go to the `ios` rule. iPadOS 13+ Safari sends a desktop Mac User-Agent by default, so those iPads are treated as desktop and get the main `url` (or a rule without a device). Link-preview bots and requests without a User-Agent also get the main `url`.
+- **Country** comes from a CDN header (`CF-IPCountry`, `X-Vercel-IP-Country` or `CloudFront-Viewer-Country`). Without a CDN in front, or when the header is missing or unknown, country rules never match and the visitor gets the main `url`. Device rules work without a CDN.
 
 ## Stats (auth required)
 
@@ -229,7 +264,7 @@ Which links a request can reach depends on its `Host` header. The default domain
 ### `GET /:slug`
 | Situation | Response |
 |---|---|
-| Plain link | `302` to the target, click logged |
+| Plain link | `302` to the target (or to the URL of a matching [routing rule](#device-and-country-routing)), click logged |
 | Unknown or paused | `404` HTML page |
 | Expired | `410` HTML page |
 | Click limit reached (including a used one-time link) | `410` HTML page |

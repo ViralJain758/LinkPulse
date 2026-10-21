@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { FolderSelect, TagsField, tagsToText, textToTags } from './TagsInput.jsx';
+import { RoutesField, routesToRows, rowsToRoutes } from './RoutesField.jsx';
 
 // <input type="datetime-local"> wants "YYYY-MM-DDTHH:mm" in the viewer's local time.
 function toLocalInput(iso) {
@@ -10,7 +11,7 @@ function toLocalInput(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Edits the destination, expiry, click limit, tags and folder. Only fields that actually changed are sent,
+// Edits the destination, expiry, click limit, tags, folder and routing rules. Only fields that actually changed are sent,
 // so saving never re-validates an expiry that has since passed or touches the password.
 export default function EditModal({ link, folders, onClose, onSaved }) {
   const ref = useRef(null);
@@ -20,12 +21,14 @@ export default function EditModal({ link, folders, onClose, onSaved }) {
     maxClicks: link.maxClicks == null ? '' : String(link.maxClicks),
     tags: tagsToText(link.tags),
     folderId: link.folderId ?? '',
+    routes: routesToRows(link.routes),
   };
   const [url, setUrl] = useState(initial.url);
   const [expires, setExpires] = useState(initial.expires);
   const [maxClicks, setMaxClicks] = useState(initial.maxClicks);
   const [tags, setTags] = useState(initial.tags);
   const [folderId, setFolderId] = useState(initial.folderId);
+  const [routes, setRoutes] = useState(initial.routes);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -41,6 +44,8 @@ export default function EditModal({ link, folders, onClose, onSaved }) {
     if (maxClicks !== initial.maxClicks) body.maxClicks = maxClicks ? Number(maxClicks) : null;
     if (tags !== initial.tags) body.tags = textToTags(tags);
     if (folderId !== initial.folderId) body.folderId = folderId || null;
+    // Compared as the payload that would be sent, so untouched rules are not re-sent
+    if (JSON.stringify(rowsToRoutes(routes)) !== JSON.stringify(rowsToRoutes(initial.routes))) body.routes = rowsToRoutes(routes);
     if (Object.keys(body).length === 0) return ref.current.close();
 
     setBusy(true);
@@ -78,6 +83,7 @@ export default function EditModal({ link, folders, onClose, onSaved }) {
         </label>
         <TagsField value={tags} onChange={setTags} />
         <FolderSelect folders={folders} value={folderId} onChange={setFolderId} />
+        <RoutesField value={routes} onChange={setRoutes} />
         {error && <p className="error" role="alert">{error}</p>}
         <div className="qr-actions">
           <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>

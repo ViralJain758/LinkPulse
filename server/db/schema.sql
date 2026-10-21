@@ -93,3 +93,8 @@ CREATE TABLE IF NOT EXISTS clicks (
 );
 ALTER TABLE clicks ADD COLUMN IF NOT EXISTS source TEXT;
 CREATE INDEX IF NOT EXISTS idx_clicks_link_time ON clicks(link_id, clicked_at);
+
+-- v7: device/country routing. A list of rules [{ "device": "ios"|"android"|null, "country": "DE"|null,
+-- "url": "..." }]; the first rule that matches a visitor replaces target_url for that visit.
+-- Deploy this together with the server: the redirect now selects this column.
+ALTER TABLE links ADD COLUMN IF NOT EXISTS routes JSONB NOT NULL DEFAULT '[]'::jsonb;
