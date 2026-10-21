@@ -41,19 +41,23 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-startClickLogger();
-startRateLimitPurge();
+if (!process.env.VERCEL) {
+  startClickLogger();
+  startRateLimitPurge();
+}
 
-const server = app.listen(config.port, () => {
-  console.log(`Linkpulse server running on ${config.baseUrl}`);
-});
+const server = process.env.VERCEL
+  ? null
+  : app.listen(config.port, () => {
+      console.log(`Linkpulse server running on ${config.baseUrl}`);
+    });
 
 // Flush buffered clicks before exiting so a deploy/restart doesn't lose them
 let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  server.close();
+  server?.close();
   stopRateLimitPurge();
   await stopClickLogger().catch(console.error);
   await pool.end().catch(() => {});
@@ -61,3 +65,5 @@ async function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+export default app;

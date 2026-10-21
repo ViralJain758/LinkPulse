@@ -1,8 +1,16 @@
 import { createHmac } from 'node:crypto';
 import { UAParser } from 'ua-parser-js';
-import geoip from 'geoip-country';
 import { isbot } from 'isbot';
 import { config } from '../config.js';
+
+// geoip-country loads its binary database during import. Some serverless bundlers omit that
+// optional data file, so country detection must not prevent the API from starting.
+let geoip = null;
+try {
+  geoip = (await import('geoip-country')).default;
+} catch (err) {
+  console.warn(`Offline country database unavailable; using request country headers only: ${err.message}`);
+}
 
 // Bots, crawlers, link-preview fetchers and HTTP libraries are recognised by `isbot`, which tracks a
 // community-maintained list of crawler user agents. Upgrading the package updates the list.
@@ -14,7 +22,7 @@ import { config } from '../config.js';
 const COUNTRY_HEADERS = ['cf-ipcountry', 'x-vercel-ip-country', 'cloudfront-viewer-country'];
 
 export function countryFromIp(ip) {
-  if (!ip) return null;
+  if (!ip || !geoip) return null;
   try {
     const code = geoip.lookup(String(ip).replace(/^::ffff:/i, ''))?.country;
     return /^[A-Z]{2}$/.test(code || '') ? code : null;

@@ -16,6 +16,9 @@ npm test                                # unit tests (node:test, no database nee
 
 Requires Node 20.6+ (uses `--env-file`). Configuration is documented in [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
+For a separate Vercel server deployment, set the Vercel project **Root Directory** to `server`.
+The server project uses `server/vercel.json`; do not use the repository-root Vercel config.
+
 ## Layout
 
 | Path | Role |
@@ -45,7 +48,7 @@ curl "localhost:4000/api/stats/overview?range=7d" -H "Authorization: Bearer <TOK
 - Bots and link-preview fetchers (WhatsApp, Telegram, Slack, curl...) and `HEAD` requests are not counted and never use up a click-limited link's visits.
 - Clicks are batched every second; a hard crash can lose about a second of clicks.
 - The redirect caches link lookups in memory (`SLUG_CACHE_TTL_SECONDS`, default 60; `0` turns it off). Editing or deleting a link through the API takes effect immediately on that server. Changes made any other way, such as SQL run by hand, show up after the TTL or a restart. Click-limited links and unknown slugs are never cached. Details in [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#slug-cache).
-- Country needs a CDN header (Cloudflare, Vercel, CloudFront); otherwise it is empty, and country routing rules never match.
+- Country is read from CDN headers when available (Cloudflare, Vercel, CloudFront). The bundled offline lookup is used as a fallback; if a serverless deployment omits its data file, the server still starts and country remains Unknown unless a CDN header is present.
 - Device routing reads the User-Agent: iPadOS 13+ Safari reports a Mac, so those iPads are not sent to an `ios` rule. Bots get the main destination.
 
 - Bulk import creates links one at a time and keeps going past bad rows; it is capped at 500 rows and 1 MB per request. Rows with passwords are slower (bcrypt).
