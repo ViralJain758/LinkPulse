@@ -1,17 +1,43 @@
-# Optional: an offline local Postgres. LinkPulse's database is Supabase (see the README); use this only
-# without internet access or to try things out.
-# Create the tables afterwards with `cd server && npm run migrate`.
-# Local development database only. Do not use these credentials in production.
+# Runs the LinkPulse server in Docker. The database is Supabase (no local Postgres): put the connection strings
+# in a .env file next to this one (compose reads it automatically) or in your shell.
+#
+#   DATABASE_URL          Supabase Transaction pooler string (port 6543), used by the server
+#   MIGRATE_DATABASE_URL  Supabase Session pooler or Direct string (port 5432), used by `migrate`
+#   JWT_SECRET            openssl rand -hex 48
+#
+#   docker compose up -d --build
+#
+# `migrate` applies the database migrations and exits; `server` starts once it has succeeded.
 services:
-  db:
-    image: postgres:16-alpine
+  migrate:
+    build: ./server
+    command: ["node", "scripts/migrate.js", "up"]
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: linkpulse
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your Supabase connection string}
+      MIGRATE_DATABASE_URL: ${MIGRATE_DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-auto}
+    restart: "no"
+
+  server:
+    build:
+      context: ./server
+      args:
+        RELEASE: ${RELEASE:-}
     ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-volumes:
-  pgdata:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your Supabase connection string}
+      DATABASE_SSL: ${DATABASE_SSL:-auto}
+      DATABASE_SSL_CA: ${DATABASE_SSL_CA:-}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET, e.g. openssl rand -hex 48}
+      BASE_URL: ${BASE_URL:-http://localhost:4000}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 15s

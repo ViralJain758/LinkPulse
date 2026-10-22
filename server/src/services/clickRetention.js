@@ -3,6 +3,7 @@
 // a row is never deleted without being counted, and never counted twice.
 import { query } from '../db.js';
 import { config } from '../config.js';
+import { log } from './logger.js';
 
 const BATCH_SIZE = 10_000;
 const MAX_BATCHES = 100; // per run; a bigger backlog is finished by the next run (or `npm run clicks:purge`)
@@ -63,9 +64,9 @@ async function run() {
   running = true;
   try {
     const r = await purgeOldClicks();
-    if (r.deleted) console.log(`Click retention: rolled up and removed ${r.deleted} clicks older than ${config.clickRetentionDays} days${r.done ? '' : ' (more to do)'}`);
+    if (r.deleted) log.info('click retention rolled up old clicks', { deleted: r.deleted, olderThanDays: config.clickRetentionDays, moreToDo: !r.done });
   } catch (err) {
-    console.error('Click retention failed:', err.message);
+    log.error('click retention failed', { err });
   } finally {
     running = false;
   }

@@ -25,13 +25,12 @@ A self-hosted URL shortener with built-in click analytics. Create short links, p
 
 ## Quick start
 
-Requirements: **Node.js 20.6+** and a [Supabase](https://supabase.com) project (the free plan is enough to start). Docker is only needed if you want an offline local Postgres instead.
+Requirements: **Node.js 20.6+** and a [Supabase](https://supabase.com) project (the free plan is enough to start).
 
 ```bash
 git clone https://github.com/ViralJain758/LinkPulse.git && cd LinkPulse
 
 # 1. Database: create a Supabase project, put its Session pooler string in server/.env as DATABASE_URL, then run: cd server && npm install && npm run migrate
-#    (Offline instead? `docker compose up -d db` starts a local Postgres with the schema applied.)
 
 # 2. Server
 cd server
@@ -88,7 +87,7 @@ linkpulse/
 │   └── test/          Unit tests (`npm test`)
 ├── client/            React dashboard (Vite)
 ├── docs/              API reference, architecture, deployment
-└── docker-compose.yml Optional offline Postgres
+└── docker-compose.yml Runs the server in Docker (database: Supabase)
 ```
 
 ## Documentation
@@ -98,6 +97,8 @@ linkpulse/
 | [docs/API.md](docs/API.md) | Every HTTP endpoint with request/response examples |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How redirects, the slug cache, click logging, password and one-time links work |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Configuration reference and production setup |
+| [docs/SECURITY-HEADERS.md](docs/SECURITY-HEADERS.md) | Security headers, the dashboard CSP, and why tokens in localStorage still need a follow-up |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Health checks, logs, error tracking, backup and restore, Docker |
 | [server/README.md](server/README.md) | Server-specific notes |
 | [client/README.md](client/README.md) | Dashboard-specific notes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev workflow and conventions |

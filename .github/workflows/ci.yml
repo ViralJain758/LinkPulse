@@ -15,9 +15,22 @@ jobs:
       - name: Server tests
         working-directory: server
         run: npm test
-      - name: Client build
+      - name: Client tests and build
         working-directory: client
-        run: npm ci && npm run build
+        run: npm ci && npm test && npm run build && grep -q 'Content-Security-Policy' dist/index.html
+  docker:
+    # The server image must build and start, and its health endpoints must behave
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t linkpulse-server server
+      - name: Container starts; liveness is up and readiness reports the unreachable database as 503
+        run: |
+          docker run -d --name lp -p 4000:4000 -e DATABASE_URL=postgres://u:p@127.0.0.1:1/x -e JWT_SECRET=ci-only-secret-ci-only-secret linkpulse-server
+          for i in $(seq 1 20); do curl --fail --silent localhost:4000/health/live && break; sleep 1; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:4000/health)" = 503
+          docker rm -f lp
   database:
     # Migrations must apply cleanly from empty, roll back, and re-apply; the auth queries depend on the schema
     runs-on: ubuntu-latest

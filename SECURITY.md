@@ -22,11 +22,13 @@ Please do **not** open a public issue. Report privately through GitHub's "Report
 - **SQL:** parameterized queries throughout.
 - **Database (Supabase):** the server connects over TLS (on by default for Supabase hosts; `DATABASE_SSL=verify` also checks the certificate). Row Level Security is enabled on every table with no policies, so Supabase's REST API and the public `anon` key cannot read any data. Keep the database password out of the client and out of version control, and never ship the `service_role` key (LinkPulse does not need it).
 - **Bulk import:** limited to 500 rows and 1 MB per request, authenticated, and every row goes through the same validation as a single create (http(s) targets only, slug rules, password length). Tags, folder names and the search text are only ever passed as query parameters. The dashboard's results file prefixes cells that start with `=`, `+`, `-` or `@` so spreadsheet apps do not run them as formulas. Rows with passwords are hashed with bcrypt one at a time, which is why the row cap matters.
-- **Gate pages:** password pages are sent with `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer` and a restrictive CSP.
+- **Gate pages:** password pages are sent with `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer` and a restrictive CSP that also forbids framing.
+- **Security headers and CSP:** every server response carries a locked-down CSP, `nosniff`, framing and COOP headers, and HSTS on HTTPS; `/api/*` is never cached. The dashboard ships a CSP (`script-src 'self'`, no inline script or eval, `connect-src` limited to its own origin and the API) so injected script cannot run or send the `localStorage` tokens elsewhere. Details, per-host setup and limits: [docs/SECURITY-HEADERS.md](docs/SECURITY-HEADERS.md).
 
 ## Deployment checklist
 
 - Use a long random `JWT_SECRET` and a separate `IP_HASH_SECRET`; never commit `.env`
+- Rebuild the dashboard after upgrading (`npm run build`) so its CSP is in `index.html`, and serve it with the headers in `docs/SECURITY-HEADERS.md`
 - Serve over HTTPS and set `TRUST_PROXY` correctly (otherwise the rate limiter and unique-visitor counts see the proxy's IP, and a wrong value lets clients spoof their IP)
 - Restrict `CLIENT_ORIGIN` to your dashboard origin
 - If you allow custom domains, only issue certificates for hosts the `allowed` endpoint approves, and keep `/api/*` off those hosts
@@ -35,4 +37,4 @@ Please do **not** open a public issue. Report privately through GitHub's "Report
 
 ## Known gaps
 
-No CAPTCHA (add one on registration if automated signups appear; the per-IP limit does not stop an attacker with many addresses), no multi-factor auth, no list of active sessions in the dashboard, and no re-checking of destinations after a link is saved. Tokens are still kept in `localStorage` (readable by any script on the dashboard origin, see `docs/ARCHITECTURE.md`); the refresh token is the more sensitive of the two. Email changes are not supported yet.
+No CAPTCHA (add one on registration if automated signups appear; the per-IP limit does not stop an attacker with many addresses), no multi-factor auth, no list of active sessions in the dashboard, and no re-checking of destinations after a link is saved. Tokens are still kept in `localStorage` (readable by any script on the dashboard origin, see `docs/ARCHITECTURE.md`); the refresh token is the more sensitive of the two. The dashboard CSP makes running injected script much harder but does not make the tokens unreadable; moving the refresh token to an `HttpOnly` cookie is the proper fix (see `docs/SECURITY-HEADERS.md`). Email changes are not supported yet.

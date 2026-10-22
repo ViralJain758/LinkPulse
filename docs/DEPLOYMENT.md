@@ -32,6 +32,12 @@
 | `ABUSE_NOTIFY_EMAIL` | no | none | Gets an email for each new abuse report (needs SMTP). Reports are saved either way |
 | `CLICK_RETENTION_DAYS` | no | `180` | Raw clicks older than this are rolled up into per-day totals and deleted. Minimum `100` (the dashboard shows up to 90 days), `0` keeps everything. See [Click retention](#click-retention) |
 | `CRON_SECRET` | no | none | Bearer token for `/api/maintenance/purge-clicks`. Set it on Vercel; unset turns the endpoint off |
+| `HSTS_MAX_AGE_SECONDS` | no | `15552000` | `Strict-Transport-Security` max-age (180 days), sent only on HTTPS requests. `0` turns it off. See [SECURITY-HEADERS.md](SECURITY-HEADERS.md) |
+| `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` or `silent`. See [OPERATIONS.md](OPERATIONS.md#logs) |
+| `LOG_FORMAT` | no | `json` in production, else `text` | `json` writes one JSON object per line |
+| `SENTRY_DSN` | no | off | Turns on error tracking (Sentry or compatible). See [OPERATIONS.md](OPERATIONS.md#error-tracking) |
+| `SENTRY_ENVIRONMENT` | no | `NODE_ENV` | Environment name shown in error reports |
+| `RELEASE` | no | none | Build identifier (git commit or image tag) attached to error reports |
 | `CUSTOM_DOMAIN_TARGET` | no | host of `BASE_URL` | What users are told to point their custom domain at: a host name for a CNAME, or an IP address. Set it when the public host differs from `BASE_URL`, for example a dedicated `cname.sho.rt` |
 
 Node 20.6+ is required (`--env-file`).
@@ -59,11 +65,9 @@ LinkPulse's database is [Supabase](https://supabase.com) Postgres. The server ta
 | Session pooler | 5432 on `...pooler.supabase.com` | **Migrations** (they need a session-level lock and transactions), `psql`, `pg_dump` and one-off scripts from an IPv4-only network |
 | Direct | 5432 on `db.[ref].supabase.co` | Same, from an IPv6-capable network (IPv4 needs Supabase's paid add-on) |
 
-**TLS.** Supabase only accepts encrypted connections. With `DATABASE_SSL=auto` the server turns TLS on for `*.supabase.co` and `*.supabase.com` hosts and leaves it off for others, such as the local docker database. That encrypts the connection but does not check the server's certificate. To check it, download the CA certificate from the dashboard (Database settings) and set `DATABASE_SSL=verify` and `DATABASE_SSL_CA=/path/to/certificate`.
+**TLS.** Supabase only accepts encrypted connections. With `DATABASE_SSL=auto` the server turns TLS on for `*.supabase.co` and `*.supabase.com` hosts and leaves it off for others. That encrypts the connection but does not check the server's certificate. To check it, download the CA certificate from the dashboard (Database settings) and set `DATABASE_SSL=verify` and `DATABASE_SSL_CA=/path/to/certificate`.
 
 **Row Level Security.** Supabase exposes every table in the `public` schema through its REST API to holders of the project's public `anon` key. The baseline migration enables Row Level Security on every table with no policies, so that API returns nothing. The server is not affected because it connects as the table owner (`postgres`), which bypasses RLS. Connect with the `postgres` user from the dashboard's strings; a role without `BYPASSRLS` would see empty tables. If you do not use the REST API at all you can also turn it off in the project's API settings.
-
-**Offline development.** `docker compose up -d db` starts a plain local Postgres; point `DATABASE_URL` at `postgres://postgres:postgres@localhost:5432/linkpulse` (TLS stays off there) and run `cd server && npm run migrate`.
 
 ## Click retention
 

@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import pg from 'pg';
 import { config } from './config.js';
+import { log } from './services/logger.js';
 
 // The database is Supabase's Postgres, reached over a plain Postgres connection (no supabase-js, no
-// Supabase API keys). Any Postgres still works, which is what lets a local docker database be used offline.
+// Supabase API keys). The database is Supabase only; nothing in this project provisions another Postgres.
 
 const hostOf = (url) => {
   try {
@@ -49,7 +50,7 @@ export const pool = new pg.Pool({
 // A pooled connection can be dropped while idle (the pooler restarts, a Supabase maintenance window).
 // Without a listener that 'error' event would crash the whole process; the pool replaces the client itself.
 pool.on('error', (err) => {
-  console.error('Idle Postgres connection error:', err.message);
+  log.error('idle Postgres connection error', { err });
 });
 
 export const query = (text, params) => pool.query(text, params);

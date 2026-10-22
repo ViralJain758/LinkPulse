@@ -10,6 +10,7 @@ import { resolveDestination } from '../services/routing.js';
 import { flaggedThreat, threatLabel } from '../services/safeBrowsing.js';
 import { escapeHtml, message, reportLinkHtml, sendPage } from '../services/pages.js';
 import { detectTriggeredAlerts, triggerLinkAlerts } from '../services/linkAlerts.js';
+import { log } from '../services/logger.js';
 
 const router = Router();
 
@@ -140,7 +141,7 @@ async function consume(link) {
     triggerLinkAlerts(alertLink, triggered, {
       usedClicksBefore: previousUsedClicks,
       usedClicksAfter: nextUsedClicks,
-    }).catch((err) => console.error('Link alert processing failed:', err.message));
+    }).catch((err) => log.warn('link alert processing failed', { err }));
   }
 
   return true;

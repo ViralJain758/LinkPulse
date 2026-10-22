@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { safePost } from './ssrf.js';
+import { log } from './logger.js';
 
 const normalizeMilestones = (value) => {
   if (value == null) return [];
@@ -83,9 +84,9 @@ export async function triggerLinkAlerts(
         const { status } = await sendWebhook(webhookUrl, JSON.stringify({ ...payloadBase, event: eventName }), {
           headers: { 'content-type': 'application/json', 'user-agent': 'LinkPulse/1.0' },
         });
-        if (status >= 300) console.error(`Webhook alert got HTTP ${status} (redirects are not followed)`);
+        if (status >= 300) log.warn('webhook alert got a redirect or error status', { status });
       } catch (err) {
-        console.error('Webhook alert failed:', err.message);
+        log.warn('webhook alert failed', { err });
       }
     }
   }
@@ -103,7 +104,7 @@ export async function triggerLinkAlerts(
             text: `Link: ${payloadBase.shortUrl || payloadBase.slug}\nEvent: ${eventName}\nUsed clicks: ${payloadBase.usedClicksAfter}`,
           });
         } catch (err) {
-          console.error('Email alert failed:', err.message);
+          log.warn('email alert failed', { err });
         }
       }
     }

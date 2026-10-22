@@ -4,6 +4,7 @@
 // clocks differ still agree. Each hit is one atomic upsert.
 import { createHash } from 'node:crypto';
 import { query } from '../db.js';
+import { log } from './logger.js';
 
 // Failed-guess limiter (link passwords, login, change-password): isBlocked / recordFailure / clearFailures
 const FAILURE_WINDOW_MS = 15 * 60 * 1000;
@@ -64,7 +65,7 @@ export async function purgeExpired() {
 let purgeTimer = null;
 export function startRateLimitPurge(everyMs = 10 * 60 * 1000) {
   if (purgeTimer) return;
-  purgeTimer = setInterval(() => purgeExpired().catch((err) => console.error('Rate limit purge failed:', err.message)), everyMs);
+  purgeTimer = setInterval(() => purgeExpired().catch((err) => log.error('rate limit purge failed', { err })), everyMs);
   purgeTimer.unref();
 }
 export function stopRateLimitPurge() {

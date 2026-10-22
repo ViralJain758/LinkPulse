@@ -18,6 +18,10 @@ Start the server first (port 4000). `client/.env` stores the server URL in `VITE
 
 Range (24h/7d/30d/90d) uses your browser's time zone. Stats refresh every 30 seconds.
 
+## Content-Security-Policy
+
+`npm run build` writes a CSP `<meta>` tag into `dist/index.html` (from `csp.js`; the API origin comes from `VITE_API_URL`). Serve `dist/` with the headers in `vercel.json`, `public/_headers`, or the nginx/Caddy snippets in [docs/SECURITY-HEADERS.md](../docs/SECURITY-HEADERS.md). `npm test` checks the policy and keeps the header files in sync. If a new feature loads something from a new host, the browser console shows a `Refused to ...` message; allow that host in `csp.js`.
+
 ## Deploying
 
 Serve `dist/` from the same origin as the API (or proxy `/api`), or change `api.js` to use a full API URL and set `CLIENT_ORIGIN` on the server. See [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).

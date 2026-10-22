@@ -71,6 +71,13 @@ export const config = {
   // true = refuse to save links while Safe Browsing can't be reached; false = allow them.
   safeBrowsingFailClosed: (process.env.SAFE_BROWSING_FAIL_CLOSED || 'false').toLowerCase() === 'true',
   nodeEnv: process.env.NODE_ENV || 'development',
+  // Strict-Transport-Security max-age, sent only on HTTPS requests. 0 turns it off. Default 180 days.
+  hstsMaxAgeSeconds: parseCount(process.env.HSTS_MAX_AGE_SECONDS, 15552000),
+  // Error tracking (Sentry or a compatible server such as GlitchTip). Empty DSN = off. See docs/OPERATIONS.md.
+  sentryDsn: (process.env.SENTRY_DSN || '').trim(),
+  sentryEnvironment: (process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development').trim(),
+  // Shown with each reported error. Set it to the git commit or image tag at build time.
+  release: (process.env.RELEASE || '').trim() || undefined,
   // Auth: access tokens are short-lived JWTs; the refresh token (30 days, sliding) renews them.
   accessTokenTtlMinutes: parseCount(process.env.ACCESS_TOKEN_TTL_MINUTES, 15) || 15,
   refreshTokenTtlDays: parseCount(process.env.REFRESH_TOKEN_TTL_DAYS, 30) || 30,

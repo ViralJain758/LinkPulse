@@ -11,7 +11,7 @@ export function sendPage(res, status, title, body) {
       'X-Robots-Tag': 'noindex, nofollow',
       // No form-action: browsers apply it to the redirect after the POST too, which would
       // block the jump to the destination site.
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'",
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
       'Referrer-Policy': 'no-referrer',
     })
     .type('html')

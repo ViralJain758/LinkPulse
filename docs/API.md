@@ -351,7 +351,9 @@ Rolls up and deletes clicks older than `CLICK_RETENTION_DAYS` (up to 8 seconds o
 
 ## Other
 
-`GET /health` → `{ "status": "ok" }`.
+`GET /health` → `200 {"status":"ok","db":"ok","dbLatencyMs":4,"uptimeSeconds":812}` when the database answers a query, `503 {"status":"unavailable","db":"down"}` when it does not. `GET /health/live` → `{ "status": "ok" }` without touching the database. See [OPERATIONS.md](OPERATIONS.md#health-checks).
+
+Every response carries an `X-Request-Id` header (a caller-supplied one is kept when it is 8-64 characters of `A-Za-z0-9._-`). A `500` body is `{ "error": "Internal server error", "requestId": "..." }`.
 
 ## Examples
 

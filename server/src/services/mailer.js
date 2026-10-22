@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { log } from './logger.js';
 
 // Transactional email (verification, password reset). Uses the same SMTP settings as link alerts.
 let transport; // undefined = not built yet, null = SMTP not configured
@@ -21,7 +22,8 @@ export async function sendMail({ to, subject, text }) {
   if (!t) {
     // Without SMTP the links are printed so local development works. Never in production:
     // a reset link in a log file is a reset link for anyone who can read the log.
-    if (config.nodeEnv === 'production') console.warn(`Email to ${to} not sent: SMTP is not configured`);
+    if (config.nodeEnv === 'production') log.warn('email not sent: SMTP is not configured');
+    // eslint-disable-next-line no-console -- deliberate: dev-only, shows the link
     else console.log(`[email not sent: SMTP not configured]\nTo: ${to}\nSubject: ${subject}\n\n${text}\n`);
     return;
   }

@@ -6,6 +6,7 @@ import { consume, ipKey } from '../services/rateLimit.js';
 import { escapeHtml, message, sendPage } from '../services/pages.js';
 import { MAX_DETAILS, REPORT_REASONS, parseLinkRef, resolveLinkRef, validateReport } from '../services/abuse.js';
 import { sendMail } from '../services/mailer.js';
+import { log } from '../services/logger.js';
 
 // Public "report this link" page. Anyone can report; nothing is taken down automatically (that would let
 // a stranger disable someone else's link), a person on the Admin tab decides.
@@ -92,7 +93,7 @@ router.post('/report', urlencoded({ extended: false, limit: '8kb' }), async (req
         to: config.abuseNotifyEmail,
         subject: `[LinkPulse] Abuse report: /${ref.slug} (${reason})`,
         text: `A link was reported as "${REPORT_REASONS[reason]}".\n\nShort link: ${link.host ? `https://${link.host}` : config.baseUrl}/${ref.slug}\n\nReview it in the dashboard's Admin tab: ${config.clientOrigin}`,
-      }).catch((err) => console.error('Abuse report email failed:', err.message));
+      }).catch((err) => log.warn('abuse report email failed', { err }));
     }
     message(res, 200, 'Report received', 'Thank you. We will review it and remove the link if it breaks the rules.');
   } catch (err) {

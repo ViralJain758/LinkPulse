@@ -14,6 +14,7 @@ import {
 } from '../services/authTokens.js';
 import { passwordChangedMail, resetMail, sendMail, verificationMail } from '../services/mailer.js';
 import { clearFailures, consume, ipKey, isBlocked, rateLimit, recordFailure } from '../services/rateLimit.js';
+import { log } from '../services/logger.js';
 
 const router = Router();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,7 +27,7 @@ const normEmail = (v) => String(v ?? '').trim().toLowerCase();
 const publicUser = (u) => ({ id: u.id, email: u.email, emailVerified: Boolean(u.email_verified_at), isAdmin: Boolean(u.is_admin) });
 
 // Runs in the background: the response must not depend on whether the mail went out
-const inBackground = (task) => task().catch((err) => console.error('Auth email failed:', err.message));
+const inBackground = (task) => task().catch((err) => log.warn('auth email failed', { err }));
 
 // Opens a session and returns what the client needs. `token` is the access token under its
 // pre-v8 name so older clients keep working.

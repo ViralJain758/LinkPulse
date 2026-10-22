@@ -1,5 +1,6 @@
 import { pool } from '../db.js';
 import { buildClick } from './clickParser.js';
+import { log } from './logger.js';
 
 // Clicks are buffered in memory and written in one multi-row INSERT, so a burst of
 // redirects costs one DB round trip instead of one each, and the redirect path never
@@ -34,7 +35,7 @@ async function flush() {
   } catch (err) {
     // A link deleted between click and flush (FK violation) would poison the whole
     // batch, so on failure retry rows one at a time and drop only the bad ones.
-    console.error('click batch failed, retrying individually:', err.message);
+    log.error('click batch failed, retrying individually', { err });
     await Promise.all(
       batch.map((c) =>
         pool
@@ -42,7 +43,7 @@ async function flush() {
             `INSERT INTO clicks (${COLUMNS.join(', ')}) VALUES ${placeholders(0)}`,
             values(c)
           )
-          .catch((e) => console.error('click dropped:', e.message))
+          .catch((e) => log.error('click dropped', { err: e }))
       )
     );
   } finally {
@@ -56,11 +57,11 @@ export function logClick(linkId, req) {
   if (!click) return;
   if (buffer.length >= MAX_BUFFER) return;
   buffer.push(click);
-  if (buffer.length >= MAX_BATCH) flush().catch(console.error);
+  if (buffer.length >= MAX_BATCH) flush().catch((err) => log.error('click flush failed', { err }));
 }
 
 export function startClickLogger() {
-  timer = setInterval(() => flush().catch(console.error), FLUSH_INTERVAL_MS);
+  timer = setInterval(() => flush().catch((err) => log.error('click flush failed', { err })), FLUSH_INTERVAL_MS);
   timer.unref();
 }
 

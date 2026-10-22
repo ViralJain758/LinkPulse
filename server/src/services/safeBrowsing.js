@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { log } from './logger.js';
 
 // Destination safety check: target URLs are looked up in Google Safe Browsing (Lookup API v4)
 // before a link is saved, so the service can't be used to hide phishing or malware behind a
@@ -99,7 +100,7 @@ export async function checkDestinations(urls, { fetchImpl = fetch, now = Date.no
         if (threat) blocked.set(url, { reason: 'unsafe', error: UNSAFE_ERROR(threat) });
       }
     } catch (err) {
-      console.error('Safe Browsing check failed:', err.message);
+      log.warn('Safe Browsing check failed', { err });
       if (config.safeBrowsingFailClosed) {
         for (const url of batch) blocked.set(url, { reason: 'unavailable', error: UNAVAILABLE_ERROR });
       }
@@ -151,7 +152,7 @@ export async function flaggedThreat(url, { fetchImpl = fetch, now = Date.now() }
         return threat;
       })
       .catch((err) => {
-        console.error('Safe Browsing redirect check failed:', err.message);
+        log.warn('Safe Browsing redirect check failed', { err });
         backoffUntil = now + REDIRECT_BACKOFF_MS;
         return null;
       })

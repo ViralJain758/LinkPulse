@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { UAParser } from 'ua-parser-js';
 import { isbot } from 'isbot';
 import { config } from '../config.js';
+import { log } from './logger.js';
 
 // geoip-country loads its binary database during import. Some serverless bundlers omit that
 // optional data file, so country detection must not prevent the API from starting.
@@ -9,7 +10,7 @@ let geoip = null;
 try {
   geoip = (await import('geoip-country')).default;
 } catch (err) {
-  console.warn(`Offline country database unavailable; using request country headers only: ${err.message}`);
+  log.warn('offline country database unavailable; using request country headers only', { err });
 }
 
 // Bots, crawlers, link-preview fetchers and HTTP libraries are recognised by `isbot`, which tracks a
