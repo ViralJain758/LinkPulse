@@ -8,41 +8,10 @@ import { getCached, setCached, currentEpoch, slugKey } from '../services/slugCac
 import { resolveDomainId } from '../services/domainLookup.js';
 import { resolveDestination } from '../services/routing.js';
 import { flaggedThreat, threatLabel } from '../services/safeBrowsing.js';
+import { escapeHtml, message, reportLinkHtml, sendPage } from '../services/pages.js';
 import { detectTriggeredAlerts, triggerLinkAlerts } from '../services/linkAlerts.js';
 
 const router = Router();
-
-const escapeHtml = (s) =>
-  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-
-// Pages are small, self-contained HTML. Never cached or indexed: they gate private content.
-function sendPage(res, status, title, body) {
-  res
-    .status(status)
-    .set({
-      'Cache-Control': 'no-store',
-      'X-Robots-Tag': 'noindex, nofollow',
-      // No form-action: browsers apply it to the redirect after the POST too, which would
-      // block the jump to the destination site.
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'",
-      'Referrer-Policy': 'no-referrer',
-    })
-    .type('html')
-    .send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>${escapeHtml(title)}</title><style>
-:root{color-scheme:light dark}
-body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 system-ui,sans-serif;background:Canvas;color:CanvasText}
-main{width:min(380px,100% - 32px);padding:28px 0}
-h1{font-size:22px;margin:0 0 8px}p{margin:0 0 16px;opacity:.75}
-input,button{font:inherit;width:100%;padding:10px 12px;border-radius:8px;border:1px solid #8886;box-sizing:border-box}
-button{margin-top:12px;background:#2f5bff;border-color:#2f5bff;color:#fff;font-weight:600;cursor:pointer}
-.err{color:#b4281e;opacity:1}@media (prefers-color-scheme:dark){.err{color:#ff7b6e}}
-</style></head><body><main>${body}</main></body></html>`);
-}
-
-const message = (res, status, title, text) =>
-  sendPage(res, status, title, `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p>`);
 
 // Shown instead of the redirect when Safe Browsing lists the destination. Deliberately has no
 // "continue anyway" button, and doesn't print the destination: password-protected links keep
@@ -78,15 +47,18 @@ function passwordPage(res, slug, error, status = 200, source = null) {
 <p${error ? ' class="err" role="alert"' : ''}>${escapeHtml(error || 'Enter the password to continue to this link.')}</p>
 <form method="post" action="/${encodeURIComponent(slug)}${source ? `?s=${source}` : ''}" autocomplete="off">
 <input type="password" name="password" aria-label="Password" required autofocus>
-<button type="submit">Continue</button></form>`
+<button type="submit">Continue</button></form>${reportLinkHtml(slug)}`
   );
 }
 
-const COLUMNS = 'id, target_url, routes, is_active, expires_at, password_hash, max_clicks, used_clicks, webhook_url, notification_email, notify_on_clicks';
+const COLUMNS = `l.id, l.slug, l.target_url, l.routes, l.is_active, l.expires_at, l.password_hash, l.max_clicks, l.used_clicks,
+  l.webhook_url, l.notification_email, l.notify_on_clicks,
+  (l.disabled_at IS NOT NULL OR u.disabled_at IS NOT NULL) AS disabled`;
 // A slug is unique per domain: the service's own domain (domain_id NULL) or one custom domain.
 // Two statements rather than one, so each uses its own partial unique index.
-const SELECT_DEFAULT = `SELECT ${COLUMNS} FROM links WHERE slug = $1 AND domain_id IS NULL`;
-const SELECT_ON_DOMAIN = `SELECT ${COLUMNS} FROM links WHERE slug = $1 AND domain_id = $2`;
+// `disabled` is an admin takedown of the link or a suspension of its owner (see routes/admin.js).
+const SELECT_DEFAULT = `SELECT ${COLUMNS} FROM links l JOIN users u ON u.id = l.user_id WHERE l.slug = $1 AND l.domain_id IS NULL`;
+const SELECT_ON_DOMAIN = `SELECT ${COLUMNS} FROM links l JOIN users u ON u.id = l.user_id WHERE l.slug = $1 AND l.domain_id = $2`;
 
 // Cache-aware lookup. Click-limited links are never cached because used_clicks changes on
 // every visit; the epoch check stops a lookup that raced with a PATCH/DELETE from caching
@@ -115,6 +87,10 @@ const usedUp = (res, link) =>
 
 // Sends the error page and returns true when the link can't be served.
 function checkServable(link, res) {
+  if (link?.disabled) {
+    message(res, 410, 'Link removed', 'This link was removed because it was reported for abuse or broke our rules.');
+    return true;
+  }
   if (!link || !link.is_active) {
     message(res, 404, 'Link not found', 'This link does not exist or has been turned off.');
     return true;

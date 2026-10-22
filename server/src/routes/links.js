@@ -40,6 +40,9 @@ const toResponse = (row) => ({
   targetUrl: row.target_url,
   expiresAt: row.expires_at,
   isActive: row.is_active,
+  // An admin takedown. Only an admin can lift it; the owner's pause switch (isActive) is separate.
+  isDisabled: row.disabled_at != null,
+  disabledReason: row.disabled_at != null ? row.disabled_reason ?? null : null,
   hasPassword: row.password_hash != null,
   maxClicks: row.max_clicks,
   usedClicks: row.used_clicks,

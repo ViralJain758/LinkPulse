@@ -70,7 +70,7 @@ test('failure tracking: blocked at 5, cleared by clearFailures, lapses with the 
 });
 
 test('very long keys are accepted (hashed) and still limited', opts, async () => {
-  const k = `x|${'a'.repeat(5000)}`;
+  const k = `x|${unique()}|${'a'.repeat(5000)}`; // unique, so a re-run within the window starts clean
   assert.equal((await rl.consume(k, 1, 60_000)).allowed, true);
   assert.equal((await rl.consume(k, 1, 60_000)).allowed, false);
 });

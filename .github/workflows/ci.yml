@@ -43,9 +43,9 @@ jobs:
           npm run migrate
           npm run migrate:down -- all
           npm run migrate
-      - name: Rate limiter tests against Postgres
+      - name: Rate limiter and moderation tests against Postgres
         working-directory: server
-        run: node --test test/rateLimit.db.test.js
+        run: node --test test/rateLimit.db.test.js test/moderation.test.js
       - name: Session and token SQL smoke test
         working-directory: server
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f test/sql/auth_smoke.sql

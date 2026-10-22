@@ -18,7 +18,8 @@
     "test": "node --test",
     "migrate": "node scripts/migrate.js up",
     "migrate:down": "node scripts/migrate.js down",
-    "migrate:create": "node scripts/migrate.js create"
+    "migrate:create": "node scripts/migrate.js create",
+    "admin": "node scripts/make-admin.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

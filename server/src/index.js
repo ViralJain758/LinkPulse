@@ -7,6 +7,8 @@ import statsRoutes from './routes/stats.js';
 import folderRoutes from './routes/folders.js';
 import tagRoutes from './routes/tags.js';
 import domainRoutes from './routes/domains.js';
+import adminRoutes from './routes/admin.js';
+import reportRoutes from './routes/report.js';
 import redirectRoutes from './routes/redirect.js';
 import { pool } from './db.js';
 import { startClickLogger, stopClickLogger } from './services/clickLogger.js';
@@ -25,6 +27,10 @@ app.use('/api/folders', folderRoutes);
 app.use('/api/tags', tagRoutes);
 app.use('/api/domains', domainRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Public report form (GET/POST /report, GET /report/:slug). Before the redirect router, which matches /:slug.
+app.use('/', reportRoutes);
 
 // Must stay last: it matches any single-segment path
 app.use('/', redirectRoutes);

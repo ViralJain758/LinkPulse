@@ -13,6 +13,7 @@ import { RoutesField, rowsToRoutes } from './RoutesField.jsx';
 const isExhausted = (l) => l.maxClicks != null && l.usedClicks >= l.maxClicks;
 
 function status(link) {
+  if (link.isDisabled) return { key: 'removed', text: 'Taken down' };
   if (!link.isActive) return { key: 'paused', text: 'Paused' };
   if (link.expiresAt && new Date(link.expiresAt) <= new Date()) return { key: 'expired', text: 'Expired' };
   if (isExhausted(link)) return { key: 'used', text: link.maxClicks === 1 ? 'Used' : 'Limit reached' };
@@ -298,7 +299,7 @@ export default function LinksPage({ onOpenLink }) {
                         <button className="act" onClick={() => resetCount(l)}>{isExhausted(l) ? 'Re-arm' : 'Reset count'}</button>
                       )}
                       <button className="act" onClick={() => setPassword(l)}>{l.hasPassword ? 'Change password' : 'Add password'}</button>
-                      <button className="act" onClick={() => toggle(l)}>{l.isActive ? 'Pause' : 'Resume'}</button>
+                      {!l.isDisabled && <button className="act" onClick={() => toggle(l)}>{l.isActive ? 'Pause' : 'Resume'}</button>}
                       <button className="act danger" onClick={() => remove(l)}>Delete</button>
                       </div>
                     </td>

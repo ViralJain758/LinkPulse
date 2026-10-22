@@ -16,6 +16,9 @@ One Express process serves the JSON API under `/api`, a health check, and the pu
 - `links(id, user_id, slug UNIQUE, target_url, password_hash, max_clicks, used_clicks, expires_at, is_active, folder_id, tags TEXT[], created_at)`
 - `folders(id, user_id, name, created_at)` with a unique index on `(user_id, lower(name))`
 - `domains(id, user_id, host, verification_token, verified_at, created_at)`; `links.domain_id` (NULL = default domain). Slugs are unique per domain through two partial unique indexes: `(slug) WHERE domain_id IS NULL` and `(domain_id, slug) WHERE domain_id IS NOT NULL`. `host` is unique per user, and unique overall among **verified** domains, so several users can claim a host but only the first to prove control keeps it
+- `abuse_reports(id, link_id NULL on delete, slug, domain_host, target_url, reason, details, reporter_email, reporter_ip_hash, status, resolved_*)`: a snapshot of what was reported, so it outlives the link
+- `admin_actions(id, admin_id, action, target_type, target_id, reason)`: audit trail of takedowns
+- `users.is_admin`, `users.disabled_at/_reason`, `links.disabled_at/_reason`: admin flag and takedown state (separate from the owner's `links.is_active` pause switch)
 - `clicks(id, link_id, clicked_at, referrer, device_type, browser, os, country, ip_hash, source)` indexed on `(link_id, clicked_at)`
 
 Deleting a user or link cascades to their links/clicks. Deleting a folder sets `links.folder_id` to `NULL` (the links stay). `links.tags` is a Postgres array with a GIN index, so a tag filter is `tags @> ARRAY[...]`; there is no separate tags table, so a tag exists exactly as long as some link has it.
@@ -23,7 +26,7 @@ Deleting a user or link cascades to their links/clicks. Deleting a folder sets `
 ## Redirect flow
 
 0. Work out the namespace from the request's `Host` (`req.hostname`): the service's own host, or any host that is not a verified custom domain, is the default domain (`domain_id` NULL); a verified custom domain selects that domain's links. This lookup is cached in memory for the same TTL as the slug cache, including "not a custom domain" answers (`services/domainLookup.js`).
-1. Look up the slug in that namespace (in-memory cache first, then Postgres). Missing/paused → 404; expired → 410; click limit reached → 410.
+1. Look up the slug in that namespace (in-memory cache first, then Postgres). Taken down (the link or its owner) → 410 "removed"; missing/paused → 404; expired → 410; click limit reached → 410.
 2. Password link: show a form. Nothing is consumed or logged until the right password arrives by `POST`.
 3. Click-limited link (`max_clicks` set; 1 = one-time): claim a visit with
    `UPDATE links SET used_clicks = used_clicks + 1 WHERE id=$1 AND max_clicks IS NOT NULL AND used_clicks < max_clicks AND is_active AND (expires_at IS NULL OR expires_at > now())`.

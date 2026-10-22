@@ -23,7 +23,7 @@ const HOUR = 60 * 60 * 1000;
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
 
 const normEmail = (v) => String(v ?? '').trim().toLowerCase();
-const publicUser = (u) => ({ id: u.id, email: u.email, emailVerified: Boolean(u.email_verified_at) });
+const publicUser = (u) => ({ id: u.id, email: u.email, emailVerified: Boolean(u.email_verified_at), isAdmin: Boolean(u.is_admin) });
 
 // Runs in the background: the response must not depend on whether the mail went out
 const inBackground = (task) => task().catch((err) => console.error('Auth email failed:', err.message));
@@ -76,7 +76,7 @@ router.post('/register', registerLimit, async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const { rows } = await query(
-      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, email_verified_at',
+      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, email_verified_at, is_admin',
       [email, passwordHash]
     );
     const user = rows[0];
@@ -106,7 +106,7 @@ router.post('/login', loginLimit, async (req, res, next) => {
     }
 
     const { rows } = await query(
-      'SELECT id, email, password_hash, email_verified_at FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, email_verified_at, is_admin, disabled_at FROM users WHERE email = $1',
       [email]
     );
     const user = rows[0];
@@ -118,6 +118,10 @@ router.post('/login', loginLimit, async (req, res, next) => {
     }
     await clearFailures(key);
 
+    // Only said after the password was right, so it does not reveal which emails exist
+    if (user.disabled_at) {
+      return res.status(403).json({ error: 'This account has been suspended', code: 'account_disabled' });
+    }
     if (config.requireEmailVerification && !user.email_verified_at) {
       return res.status(403).json({ error: 'Confirm your email address to sign in', code: 'email_not_verified' });
     }
@@ -137,9 +141,9 @@ router.post('/refresh', async (req, res, next) => {
     }
     if (result.reason) return res.status(401).json({ error: 'Session ended, please sign in again', code: 'session_ended' });
 
-    const { rows } = await query('SELECT id, email, email_verified_at FROM users WHERE id = $1', [result.userId]);
+    const { rows } = await query('SELECT id, email, email_verified_at, is_admin, disabled_at FROM users WHERE id = $1', [result.userId]);
     const user = rows[0];
-    if (!user) return res.status(401).json({ error: 'Session ended, please sign in again', code: 'session_ended' });
+    if (!user || user.disabled_at) return res.status(401).json({ error: 'Session ended, please sign in again', code: 'session_ended' });
     if (config.requireEmailVerification && !user.email_verified_at) {
       return res.status(403).json({ error: 'Confirm your email address to sign in', code: 'email_not_verified' });
     }
@@ -159,7 +163,7 @@ router.post('/refresh', async (req, res, next) => {
 // GET /api/auth/me
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
-    const { rows } = await query('SELECT id, email, email_verified_at FROM users WHERE id = $1', [req.user.id]);
+    const { rows } = await query('SELECT id, email, email_verified_at, is_admin FROM users WHERE id = $1', [req.user.id]);
     res.json({ user: publicUser(rows[0]) });
   } catch (err) {
     next(err);

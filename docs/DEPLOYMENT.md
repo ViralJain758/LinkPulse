@@ -28,6 +28,8 @@
 | `RATE_LIMIT_REGISTER_PER_IP` | no | `5` | Accounts one IP can create per hour. Each signup sends an email, so keep it low. `0` disables |
 | `RATE_LIMIT_LOGIN_PER_IP` | no | `30` | Login attempts per IP per 15 minutes, on top of the 5-failures-per-IP-and-email lock. `0` disables |
 | `RATE_LIMIT_LINKS_PER_USER` | no | `500` | Links one user can create per hour; a CSV import counts one per row, so keep it at or above the import size you want to allow (max 500 rows). `0` disables |
+| `RATE_LIMIT_REPORTS_PER_IP` | no | `5` | Abuse reports one IP can send per hour. `0` disables |
+| `ABUSE_NOTIFY_EMAIL` | no | none | Gets an email for each new abuse report (needs SMTP). Reports are saved either way |
 | `CUSTOM_DOMAIN_TARGET` | no | host of `BASE_URL` | What users are told to point their custom domain at: a host name for a CNAME, or an IP address. Set it when the public host differs from `BASE_URL`, for example a dedicated `cname.sho.rt` |
 
 Node 20.6+ is required (`--env-file`).
@@ -60,6 +62,33 @@ LinkPulse's database is [Supabase](https://supabase.com) Postgres. The server ta
 **Row Level Security.** Supabase exposes every table in the `public` schema through its REST API to holders of the project's public `anon` key. The baseline migration enables Row Level Security on every table with no policies, so that API returns nothing. The server is not affected because it connects as the table owner (`postgres`), which bypasses RLS. Connect with the `postgres` user from the dashboard's strings; a role without `BYPASSRLS` would see empty tables. If you do not use the REST API at all you can also turn it off in the project's API settings.
 
 **Offline development.** `docker compose up -d db` starts a plain local Postgres; point `DATABASE_URL` at `postgres://postgres:postgres@localhost:5432/linkpulse` (TLS stays off there) and run `cd server && npm run migrate`.
+
+## Abuse reports and takedowns
+
+A public shortener will be used for phishing and spam sooner or later, so the service ships with the tools to deal with it.
+
+**Reporting.** `/report` is a public form (also `/report/<slug>`, prefilled; custom domains serve it too). The password page links to it, and the "Link removed" page explains why a link is gone. A report stores the slug, host, the destination as it was, a reason (phishing, malware, spam, illegal, copyright, other), optional details and an optional reporter email. The reporter's IP is kept only as a keyed hash, reports are limited per IP (`RATE_LIMIT_REPORTS_PER_IP`) and a hidden honeypot field drops simple bots. **A report never takes a link down by itself**; otherwise anyone could disable someone else's link. Set `ABUSE_NOTIFY_EMAIL` to be told about new ones.
+
+**Making someone an admin.** Admin is a database flag, not something a signup can claim:
+
+```bash
+cd server
+npm run admin -- you@example.com            # grant
+npm run admin -- you@example.com --remove   # revoke
+```
+
+The person then sees an **Admin** tab (sign out and in once if they were already signed in).
+
+**What admins can do** (Admin tab, or `/api/admin/*`, see [API](API.md#admin-admin-only)):
+
+| Action | Effect |
+|---|---|
+| Take down a link | Visitors get a `410` "Link removed" page; the owner sees it as *Taken down* with your reason and **cannot undo it** (their Pause/Resume is a separate switch). Open reports on it are marked *actioned*. |
+| Suspend an account | All its links stop redirecting, every session is ended at once, sign-in is refused (`account_disabled`). Admins cannot be suspended: remove the flag first. |
+| Restore a link or account | Reverses the above. |
+| Dismiss a report | Closes it as not a problem, with an optional note. |
+
+Every takedown, restore and dismissal is written to `admin_actions` (who, what, when, why) and shown on the Activity tab. Reports are kept even if the owner deletes the link. On a multi-instance deployment, other instances stop serving a taken-down link after at most `SLUG_CACHE_TTL_SECONDS`; the instance that handled the takedown stops at once.
 
 ## Database migrations
 

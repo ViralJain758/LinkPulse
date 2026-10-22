@@ -20,6 +20,7 @@ A self-hosted URL shortener with built-in click analytics. Create short links, p
 - **Click analytics**: totals, unique visitors, time series, sources (referrers), devices, browsers, OS, countries
 - **Privacy-minded**: raw IPs are never stored (keyed hash only); referrers are stored as hostnames only; bots and link-preview fetchers are not counted
 - **Fast redirects**: recently used links are served from a small in-memory cache, and clicks are buffered in memory and written in batches after the redirect is sent
+- **Abuse reports and takedowns**: anyone can report a link at `/report` (every password and error page links to it); admins review reports in the dashboard's Admin tab, take down a link or suspend an account with a reason, and every action is logged. See [Moderation](docs/DEPLOYMENT.md#abuse-reports-and-takedowns).
 - **Dashboard** with per-link and overall views, refreshing every 30 seconds
 
 ## Quick start

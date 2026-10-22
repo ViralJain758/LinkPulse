@@ -6,6 +6,7 @@ import LinksPage from './LinksPage.jsx';
 import LinkDetail from './LinkDetail.jsx';
 import Compare from './Compare.jsx';
 import Funnel from './Funnel.jsx';
+import Admin from './Admin.jsx';
 import { RangeTabs } from './ui.jsx';
 
 // Emailed links open the dashboard as /?verify=TOKEN or /?reset=TOKEN. Read them once, at load,
@@ -66,7 +67,7 @@ export default function App() {
   };
   const openLink = (link) => setView({ name: 'link', link });
   const tab = view.name === 'link' ? 'links' : view.name;
-  const showRange = view.name !== 'links';
+  const showRange = view.name !== 'links' && view.name !== 'admin';
   const nav = (name, label) => (
     <button className={tab === name ? 'on' : ''} onClick={() => setView({ name })}>{label}</button>
   );
@@ -80,6 +81,7 @@ export default function App() {
           {nav('links', 'Links')}
           {nav('compare', 'Compare')}
           {nav('funnel', 'Funnel')}
+          {session.user?.isAdmin && nav('admin', 'Admin')}
         </nav>
         <div className="spacer" />
         {showRange && <RangeTabs value={range} onChange={setRange} />}
@@ -103,6 +105,7 @@ export default function App() {
         {view.name === 'links' && <LinksPage onOpenLink={openLink} />}
         {view.name === 'compare' && <Compare range={range} onOpenLink={openLink} />}
         {view.name === 'funnel' && <Funnel range={range} />}
+        {view.name === 'admin' && session.user?.isAdmin && <Admin />}
         {view.name === 'link' && <LinkDetail link={view.link} range={range} onBack={() => setView({ name: 'links' })} />}
       </main>
     </div>

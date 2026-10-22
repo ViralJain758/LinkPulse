@@ -209,6 +209,7 @@ th.num { text-align: right; }
 .pill.active::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.paused { color: var(--muted); }
 .pill.expired, .pill.used { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.pill.removed { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .pill.tag { color: var(--muted); border-color: var(--line-2); font-weight: 500; }
 
 .detail-head { margin: 6px 0 22px; }
@@ -408,3 +409,15 @@ table.plain tr.lead .slug { text-decoration: underline; text-decoration-color: v
   .share { min-width: 0; width: 100%; }
   table.plain td.cell-link { padding-bottom: 0; }
 }
+
+/* Admin */
+.admin-tabs { margin-bottom: 16px; }
+.admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.admin-item { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 8px; min-width: 0; }
+.admin-item .top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.admin-item .url { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; margin: 0; }
+.admin-item .details { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; color: var(--ink-2); }
+.admin-item .meta { color: var(--muted); font-size: 13px; margin: 0; }
+.admin-item .actions { width: auto; margin: 0; justify-content: flex-start; }
+.reason-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.reason-form input { flex: 1 1 240px; }

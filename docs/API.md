@@ -303,6 +303,7 @@ Which links a request can reach depends on its `Host` header. The default domain
 |---|---|
 | Plain link | `302` to the target (or to the URL of a matching [routing rule](#device-and-country-routing)), click logged |
 | Unknown or paused | `404` HTML page |
+| Taken down by an admin, or its owner is suspended | `410` "Link removed" HTML page |
 | Expired | `410` HTML page |
 | Click limit reached (including a used one-time link) | `410` HTML page |
 | Link with a click limit, normal browser | one visit atomically consumed, then `302` |
@@ -316,6 +317,32 @@ Lookups of links without a click limit may be served from the in-memory slug cac
 ### `POST /:slug`
 Password form submit, `application/x-www-form-urlencoded` with field `password`.
 `303` to the target on success (and consumes one visit of a click-limited link); `401` page on a wrong password; `429` page after 5 wrong attempts (`Retry-After: 900`).
+
+## Abuse reports (public)
+
+### `GET /report`, `GET /report/:slug`
+HTML form. `/report/:slug` is prefilled with the link on the host it was opened on. Pages are `noindex` and never cached.
+
+### `POST /report`
+`application/x-www-form-urlencoded`: `link` (full short URL, `host/slug` or a bare slug), `reason` (`phishing`, `malware`, `spam`, `illegal`, `copyright`, `other`), optional `details` (max 2000) and `email`. A hidden `website` field must stay empty. `200` page on success, `400` page for invalid input, `404` page for an unknown link, `429` page after `RATE_LIMIT_REPORTS_PER_IP` reports per hour. Reporting never changes the link.
+
+## Admin (admin only)
+
+All under `/api/admin`, with a Bearer token of a user whose `is_admin` flag is set (`npm run admin -- <email>`); others get `403 not_admin`.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /reports?status=open\|actioned\|dismissed\|all` | Reports, newest first (up to 100), with the owner and whether the link is disabled |
+| `GET /links?q=` | Search links by slug, domain or destination (50 newest) |
+| `GET /users?q=` | Search users by email (50 newest) |
+| `GET /actions` | Audit trail (latest 100) |
+| `POST /links/:id/disable` `{ "reason" }` | Take a link down (reason required, max 500). Closes its open reports |
+| `POST /links/:id/enable` | Lift a takedown |
+| `POST /users/:id/disable` `{ "reason" }` | Suspend an account: its links stop, its sessions end. Not possible for admins |
+| `POST /users/:id/enable` | Lift a suspension |
+| `POST /reports/:id/dismiss` `{ "note"? }` | Close a report without action |
+
+Link objects from `/api/links` gain `isDisabled` and `disabledReason`.
 
 ## Other
 

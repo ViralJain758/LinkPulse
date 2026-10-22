@@ -30,9 +30,10 @@ export async function requireAuth(req, res, next) {
   try {
     // One indexed lookup per request: a signed-out, expired or revoked session stops working at once
     const { rows } = await query(
-      `SELECT u.email, u.email_verified_at
+      `SELECT u.email, u.email_verified_at, u.is_admin
          FROM sessions s JOIN users u ON u.id = s.user_id
-        WHERE s.id = $1 AND s.user_id = $2 AND s.revoked_at IS NULL AND s.expires_at > now()`,
+        WHERE s.id = $1 AND s.user_id = $2 AND s.revoked_at IS NULL AND s.expires_at > now()
+          AND u.disabled_at IS NULL`,
       [payload.sid, payload.sub]
     );
     const row = rows[0];
@@ -40,9 +41,15 @@ export async function requireAuth(req, res, next) {
     if (config.requireEmailVerification && !row.email_verified_at) {
       return res.status(403).json({ error: 'Verify your email address first', code: 'email_not_verified' });
     }
-    req.user = { id: payload.sub, email: row.email, sid: payload.sid };
+    req.user = { id: payload.sub, email: row.email, sid: payload.sid, isAdmin: row.is_admin };
     next();
   } catch (err) {
     next(err);
   }
+}
+
+// Admin-only routes. Always mount after requireAuth. Admin is the users.is_admin flag, set with `npm run admin`.
+export function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) return res.status(403).json({ error: 'Admin access required', code: 'not_admin' });
+  next();
 }

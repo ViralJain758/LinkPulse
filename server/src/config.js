@@ -82,8 +82,11 @@ export const config = {
   rateLimits: {
     registerPerIp: parseCount(process.env.RATE_LIMIT_REGISTER_PER_IP, 5), // accounts created per IP per hour
     loginPerIp: parseCount(process.env.RATE_LIMIT_LOGIN_PER_IP, 30), // login attempts per IP per 15 minutes
+    reportPerIp: parseCount(process.env.RATE_LIMIT_REPORTS_PER_IP, 5), // abuse reports per IP per hour
     linkCreatePerUser: parseCount(process.env.RATE_LIMIT_LINKS_PER_USER, 500), // links per user per hour (CSV rows count one each)
   },
+  // Optional. Where a note goes when someone files an abuse report (needs SMTP). Reports are always stored.
+  abuseNotifyEmail: (process.env.ABUSE_NOTIFY_EMAIL || '').trim(),
   customDomainTarget: (process.env.CUSTOM_DOMAIN_TARGET || '').trim().toLowerCase(),
 };
 
