@@ -87,11 +87,20 @@ export const config = {
   },
   // Optional. Where a note goes when someone files an abuse report (needs SMTP). Reports are always stored.
   abuseNotifyEmail: (process.env.ABUSE_NOTIFY_EMAIL || '').trim(),
+  // Raw clicks older than this many days are rolled up into per-day totals and deleted. 0 = keep everything.
+  // The dashboard shows up to 90 days, so shorter than 100 would make its charts incomplete (see below).
+  clickRetentionDays: parseCount(process.env.CLICK_RETENTION_DAYS, 180),
+  // Bearer token for /api/maintenance/* (Vercel Cron sends it automatically). Unset = those endpoints are off.
+  cronSecret: (process.env.CRON_SECRET || '').trim(),
   customDomainTarget: (process.env.CUSTOM_DOMAIN_TARGET || '').trim().toLowerCase(),
 };
 
 if (config.databaseSsl === 'verify' && !config.databaseSslCa) {
   throw new Error('DATABASE_SSL=verify needs DATABASE_SSL_CA (path to the CA certificate from the Supabase dashboard)');
+}
+
+if (config.clickRetentionDays && config.clickRetentionDays < 100) {
+  throw new Error('CLICK_RETENTION_DAYS must be 0 (keep everything) or at least 100, because the dashboard shows up to 90 days of clicks');
 }
 
 // Locking everyone out because no mail can be sent is worse than failing at startup.

@@ -19,7 +19,8 @@
     "migrate": "node scripts/migrate.js up",
     "migrate:down": "node scripts/migrate.js down",
     "migrate:create": "node scripts/migrate.js create",
-    "admin": "node scripts/make-admin.js"
+    "admin": "node scripts/make-admin.js",
+    "clicks:purge": "node scripts/purge-clicks.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

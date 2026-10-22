@@ -19,6 +19,7 @@ One Express process serves the JSON API under `/api`, a health check, and the pu
 - `abuse_reports(id, link_id NULL on delete, slug, domain_host, target_url, reason, details, reporter_email, reporter_ip_hash, status, resolved_*)`: a snapshot of what was reported, so it outlives the link
 - `admin_actions(id, admin_id, action, target_type, target_id, reason)`: audit trail of takedowns
 - `users.is_admin`, `users.disabled_at/_reason`, `links.disabled_at/_reason`: admin flag and takedown state (separate from the owner's `links.is_active` pause switch)
+- `click_rollups(link_id, day, clicks)`: raw clicks older than `CLICK_RETENTION_DAYS`, folded into clicks per link per UTC day before the raw rows are deleted (`services/clickRetention.js`)
 - `clicks(id, link_id, clicked_at, referrer, device_type, browser, os, country, ip_hash, source)` indexed on `(link_id, clicked_at)`
 
 Deleting a user or link cascades to their links/clicks. Deleting a folder sets `links.folder_id` to `NULL` (the links stay). `links.tags` is a Postgres array with a GIN index, so a tag filter is `tags @> ARRAY[...]`; there is no separate tags table, so a tag exists exactly as long as some link has it.

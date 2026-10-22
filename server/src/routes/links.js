@@ -484,7 +484,8 @@ router.get('/', async (req, res, next) => {
 
     const { rows } = await query(
       `SELECT l.*, f.name AS folder_name, d.host AS domain_host,
-              (SELECT COUNT(*)::int FROM clicks c WHERE c.link_id = l.id) AS click_count
+              (SELECT COUNT(*)::int FROM clicks c WHERE c.link_id = l.id)
+              + COALESCE((SELECT SUM(r.clicks)::int FROM click_rollups r WHERE r.link_id = l.id), 0) AS click_count
        FROM links l LEFT JOIN folders f ON f.id = l.folder_id
                     LEFT JOIN domains d ON d.id = l.domain_id
        WHERE ${where.join(' AND ')} ORDER BY l.created_at DESC`,

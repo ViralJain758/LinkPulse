@@ -3,5 +3,11 @@
     "src/index.js": {
       "includeFiles": "node_modules/geoip-country/data/geoip-country.dat"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/maintenance/purge-clicks",
+      "schedule": "17 3 * * *"
+    }
+  ]
 }

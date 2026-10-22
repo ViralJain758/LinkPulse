@@ -344,6 +344,11 @@ All under `/api/admin`, with a Bearer token of a user whose `is_admin` flag is s
 
 Link objects from `/api/links` gain `isDisabled` and `disabledReason`.
 
+## Maintenance
+
+### `GET|POST /api/maintenance/purge-clicks`
+Rolls up and deletes clicks older than `CLICK_RETENTION_DAYS` (up to 8 seconds of work per call) and clears expired rate-limit rows. Needs `Authorization: Bearer <CRON_SECRET>`; `401` otherwise, `404` when `CRON_SECRET` is not set. Returns `{ clicks: { deleted, batches, done }, rateLimitRows }`; `done: false` means more remains for the next call. Vercel Cron calls it daily (`server/vercel.json`).
+
 ## Other
 
 `GET /health` → `{ "status": "ok" }`.

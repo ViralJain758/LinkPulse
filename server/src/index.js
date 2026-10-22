@@ -9,10 +9,12 @@ import tagRoutes from './routes/tags.js';
 import domainRoutes from './routes/domains.js';
 import adminRoutes from './routes/admin.js';
 import reportRoutes from './routes/report.js';
+import maintenanceRoutes from './routes/maintenance.js';
 import redirectRoutes from './routes/redirect.js';
 import { pool } from './db.js';
 import { startClickLogger, stopClickLogger } from './services/clickLogger.js';
 import { startRateLimitPurge, stopRateLimitPurge } from './services/rateLimit.js';
+import { startClickRetention, stopClickRetention } from './services/clickRetention.js';
 
 const app = express();
 app.set('trust proxy', config.trustProxy);
@@ -28,6 +30,7 @@ app.use('/api/tags', tagRoutes);
 app.use('/api/domains', domainRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/maintenance', maintenanceRoutes);
 
 // Public report form (GET/POST /report, GET /report/:slug). Before the redirect router, which matches /:slug.
 app.use('/', reportRoutes);
@@ -50,6 +53,7 @@ app.use((err, _req, res, _next) => {
 if (!process.env.VERCEL) {
   startClickLogger();
   startRateLimitPurge();
+  startClickRetention();
 }
 
 const server = process.env.VERCEL
@@ -65,6 +69,7 @@ async function shutdown() {
   shuttingDown = true;
   server?.close();
   stopRateLimitPurge();
+  stopClickRetention();
   await stopClickLogger().catch(console.error);
   await pool.end().catch(() => {});
   process.exit(0);

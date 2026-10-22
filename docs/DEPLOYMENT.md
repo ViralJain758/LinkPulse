@@ -30,6 +30,8 @@
 | `RATE_LIMIT_LINKS_PER_USER` | no | `500` | Links one user can create per hour; a CSV import counts one per row, so keep it at or above the import size you want to allow (max 500 rows). `0` disables |
 | `RATE_LIMIT_REPORTS_PER_IP` | no | `5` | Abuse reports one IP can send per hour. `0` disables |
 | `ABUSE_NOTIFY_EMAIL` | no | none | Gets an email for each new abuse report (needs SMTP). Reports are saved either way |
+| `CLICK_RETENTION_DAYS` | no | `180` | Raw clicks older than this are rolled up into per-day totals and deleted. Minimum `100` (the dashboard shows up to 90 days), `0` keeps everything. See [Click retention](#click-retention) |
+| `CRON_SECRET` | no | none | Bearer token for `/api/maintenance/purge-clicks`. Set it on Vercel; unset turns the endpoint off |
 | `CUSTOM_DOMAIN_TARGET` | no | host of `BASE_URL` | What users are told to point their custom domain at: a host name for a CNAME, or an IP address. Set it when the public host differs from `BASE_URL`, for example a dedicated `cname.sho.rt` |
 
 Node 20.6+ is required (`--env-file`).
@@ -62,6 +64,30 @@ LinkPulse's database is [Supabase](https://supabase.com) Postgres. The server ta
 **Row Level Security.** Supabase exposes every table in the `public` schema through its REST API to holders of the project's public `anon` key. The baseline migration enables Row Level Security on every table with no policies, so that API returns nothing. The server is not affected because it connects as the table owner (`postgres`), which bypasses RLS. Connect with the `postgres` user from the dashboard's strings; a role without `BYPASSRLS` would see empty tables. If you do not use the REST API at all you can also turn it off in the project's API settings.
 
 **Offline development.** `docker compose up -d db` starts a plain local Postgres; point `DATABASE_URL` at `postgres://postgres:postgres@localhost:5432/linkpulse` (TLS stays off there) and run `cd server && npm run migrate`.
+
+## Click retention
+
+Every visit is one row in `clicks`, so the table grows without limit. Left alone, a busy shortener reaches tens of millions of rows within months, and queries and backups slow down with it. LinkPulse therefore keeps raw clicks for `CLICK_RETENTION_DAYS` (default 180) and **rolls older ones up**:
+
+- Each old click is counted into `click_rollups` (clicks per link per UTC day) and its raw row is deleted, in one atomic statement per batch of 10,000, so a click is never lost or counted twice and a crash is harmless.
+- **Kept forever:** each link's lifetime click count (shown on the Links page) and its clicks per day.
+- **Kept for the retention window only:** the per-click detail (referrer, device, browser, OS, country, hashed visitor, QR tag). The dashboard shows at most 90 days, so nothing it displays changes. The "Every click" CSV export covers the same range, so it is unaffected too.
+- **Unique visitors** cannot be summed across days, so they exist only for the raw window.
+
+**How it runs.** A long-running server does a pass an hour (the first one a minute after boot), up to 1 million clicks per pass. On Vercel there is no process to hold a timer, so `server/vercel.json` has a daily cron job that calls `/api/maintenance/purge-clicks`: set `CRON_SECRET` in the project's environment variables (Vercel sends it as a Bearer token) and the job starts working; without it the endpoint answers 404. The same call also clears expired rate-limit rows, which the timers would otherwise do.
+
+**First run on a big table.** Upgrading applies the migration (adds `click_rollups` and a small BRIN index on `clicked_at`; building it briefly blocks writes, which the in-memory click buffer absorbs) and the next pass starts removing old clicks. To do the whole backlog at once instead:
+
+```bash
+cd server
+npm run clicks:purge -- --dry-run      # how many clicks are past retention
+npm run clicks:purge                   # roll them up and delete (800,000 clicks took about 2.5 seconds against a local Postgres)
+npm run clicks:purge -- --days 120     # one-off with another window
+```
+
+Deleting rows leaves free space inside the table rather than shrinking the files. Postgres (and Supabase) reuse it for new clicks automatically, so size levels off; run `VACUUM FULL clicks` in a quiet moment only if you need the disk space back. **Back up first if you want the raw history**: the detail is gone after a purge.
+
+**Why not partitioning?** Monthly partitions make dropping old data instant, but they need a job to create future partitions, a composite primary key, and a risky rewrite of the live table. Batched deletes handle hundreds of millions of rows comfortably and need none of that. If you ever outgrow them, the rollup table is already what a partitioned design would keep, so moving to partitions later is a contained change.
 
 ## Abuse reports and takedowns
 
